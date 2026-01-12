@@ -327,27 +327,25 @@ def process_directory(directory, remove_json=False, preserve_existing=False, rec
         if media_file.is_file() and media_file.suffix.lower() in media_extensions:
             stats['total'] += 1
 
-            # Find matching JSON
+            # Find matching JSON - if no JSON exists, skip this file entirely
+            # (nothing to merge, and organize_photos.py already handled date-based organization)
             json_file = find_matching_json(media_file)
+            if not json_file:
+                stats['skipped_no_json'] += 1
+                continue
 
-            # Read metadata from JSON if available
-            metadata = None
+            # Read metadata from JSON
+            metadata = read_google_metadata(json_file)
+
+            # If JSON exists but has no usable date, try filename as fallback
             from_filename = False
-            if json_file:
-                metadata = read_google_metadata(json_file)
-
-            # If no JSON or no usable metadata, try extracting from filename
-            if not metadata or ('conflict' not in metadata and 'datetime' not in metadata):
+            if not metadata or 'datetime' not in metadata:
                 filename_date = extract_date_from_filename(media_file.name)
                 if filename_date:
                     if not metadata:
                         metadata = {}
                     metadata['datetime'] = filename_date
                     from_filename = True
-                    if not json_file:
-                        stats['skipped_no_json'] += 1
-            elif not json_file:
-                stats['skipped_no_json'] += 1
 
             # Skip if still no usable metadata
             if not metadata or 'datetime' not in metadata:

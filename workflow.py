@@ -119,32 +119,26 @@ def main():
         print("\n❌ Failed to organize photos")
         return 1
 
-    # Step 3: Merge metadata (only processes remaining organized files)
+    # Step 3: Merge metadata for _TO_REVIEW_ only
+    # (Regular files have EXIF written during organization, only review files need merging)
     print("\n" + "=" * 80)
-    print("PHASE 3: METADATA")
+    print("PHASE 3: METADATA (review files only)")
     print("=" * 80)
 
-    # Merge metadata for photos
-    success, merge_photos_time = run_script(
-        str(script_dir / "merge_metadata.py"),
-        ["Organized_Photos/", "--recursive", "--remove-json"],
-        "Merging JSON metadata into EXIF for organized photos"
-    )
-    if not success:
-        print("\n❌ Failed to merge metadata for photos")
-        return 1
-
-    # Merge metadata for videos
-    success, merge_videos_time = run_script(
-        str(script_dir / "merge_metadata.py"),
-        ["Organized_Videos/", "--recursive", "--remove-json"],
-        "Merging JSON metadata into EXIF for organized videos"
-    )
-    if not success:
-        print("\n❌ Failed to merge metadata for videos")
-        return 1
-
-    merge_time = merge_photos_time + merge_videos_time
+    review_dir = script_dir / "Organized_Photos" / "_TO_REVIEW_"
+    merge_time = 0
+    
+    if review_dir.exists() and any(review_dir.iterdir()):
+        success, merge_time = run_script(
+            str(script_dir / "merge_metadata.py"),
+            ["Organized_Photos/_TO_REVIEW_/", "--recursive", "--remove-json"],
+            "Merging JSON metadata into EXIF for review files"
+        )
+        if not success:
+            print("\n⚠️  Warning: Failed to merge metadata for review files")
+            # Don't fail the whole workflow for this
+    else:
+        print("\nNo files in _TO_REVIEW_, skipping metadata merge.")
 
     # Success!
     elapsed_time = time.time() - start_time

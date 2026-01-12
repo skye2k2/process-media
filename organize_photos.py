@@ -94,13 +94,14 @@ def get_metadata_path(media_file):
 
 
 def parse_metadata(metadata_path):
-    """Parse metadata file and extract both photoTakenTime and creationTime"""
+    """Parse metadata file and extract photoTakenTime, creationTime, and geoData"""
     try:
         with open(metadata_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
         photo_taken = None
         creation_time = None
+        geo_data = None
 
         # Extract photoTakenTime
         if 'photoTakenTime' in data and 'timestamp' in data['photoTakenTime']:
@@ -118,12 +119,24 @@ def parse_metadata(metadata_path):
             except (ValueError, OSError):
                 pass
 
-        return photo_taken, creation_time
+        # Extract geoData (only if coordinates are non-zero)
+        if 'geoData' in data:
+            geo = data['geoData']
+            lat = geo.get('latitude', 0)
+            lon = geo.get('longitude', 0)
+            if lat != 0 or lon != 0:
+                geo_data = {
+                    'latitude': lat,
+                    'longitude': lon,
+                    'altitude': geo.get('altitude', 0)
+                }
+
+        return photo_taken, creation_time, geo_data
 
     except json.JSONDecodeError as e:
         print(f"  Warning: Could not parse metadata {metadata_path}: {e}")
 
-    return None, None
+    return None, None, None
 
 
 def get_date_from_filename(filename):
@@ -161,39 +174,41 @@ def dates_match(date1, date2):
 def determine_destination(media_file):
     """
     Determine the year/month destination for a media file.
-    Returns: (year, month, metadata_path, needs_review, reason, create_date, modify_date, used_filename_date)
+    Returns: (year, month, metadata_path, needs_review, reason, create_date, modify_date, geo_data, used_filename_date)
 
     Priority order for date extraction (for performance, filename is checked first):
     1. Filename date pattern (YYYYMMDD) - fastest, no JSON I/O required
     2. JSON metadata (photoTakenTime/creationTime) - only parsed if filename has no date
 
-    Note: metadata_path is always looked up so the file can be deleted (if filename date used)
-    or moved (if JSON date used) alongside the media.
+    Note: metadata_path is always looked up so the file can be deleted after processing.
 
     create_date and modify_date are used when dates conflict - earlier becomes creation,
     later becomes modification.
 
-    used_filename_date: True if filename provided the date (JSON should be deleted, not moved)
+    geo_data: dict with latitude/longitude/altitude if available from JSON
+
+    used_filename_date: True if filename provided the date (no EXIF write needed for dates)
     """
     chosen_date = None
     create_date = None
     modify_date = None
+    geo_data = None
     needs_review = False
     reason = ""
 
-    # Always look up metadata path so we can delete or move it with the media file
+    # Always look up metadata path so we can delete it after processing
     metadata_path = get_metadata_path(media_file)
 
     # First, try to extract date from filename (fastest - no JSON parsing required)
     filename_date = get_date_from_filename(media_file)
     if filename_date:
         # Filename date is authoritative when present - skip metadata parsing entirely
-        # Return used_filename_date=True so caller knows to delete (not move) the JSON
-        return filename_date.year, filename_date.month, metadata_path, False, "", None, None, True
+        # Return used_filename_date=True so caller knows no date EXIF write needed
+        return filename_date.year, filename_date.month, metadata_path, False, "", None, None, None, True
 
     # Filename didn't have a parseable date, so parse JSON metadata
     if metadata_path:
-        photo_taken_date, creation_date = parse_metadata(metadata_path)
+        photo_taken_date, creation_date, geo_data = parse_metadata(metadata_path)
 
         # Check if dates conflict (different year/month by 3+ months)
         if photo_taken_date and creation_date:
@@ -211,19 +226,22 @@ def determine_destination(media_file):
             else:
                 # Dates match (within 3 months), use photoTakenTime
                 chosen_date = photo_taken_date
+                create_date = photo_taken_date
         elif photo_taken_date:
             chosen_date = photo_taken_date
+            create_date = photo_taken_date
         elif creation_date:
             chosen_date = creation_date
+            create_date = creation_date
 
     # If we still don't have a date, send to review
     if not chosen_date:
         needs_review = True
         reason = "No date in metadata or filename"
-        return None, None, metadata_path, needs_review, reason, None, None, False
+        return None, None, metadata_path, needs_review, reason, None, None, None, False
 
-    # JSON provided the date, so it should be moved (not deleted) - used_filename_date=False
-    return chosen_date.year, chosen_date.month, metadata_path, needs_review, reason, create_date, modify_date, False
+    # JSON provided the date - used_filename_date=False means we need to write EXIF
+    return chosen_date.year, chosen_date.month, metadata_path, needs_review, reason, create_date, modify_date, geo_data, False
 
 
 def create_destination_path(year, month, output_base_dir=OUTPUT_DIR):
@@ -315,8 +333,16 @@ def rename_metadata_to_match_media(media_original_name, media_new_name, metadata
         return metadata_path
 
 
-def apply_all_metadata(file_path, create_date=None, modify_date=None):
-    """Apply all EXIF metadata changes in a single exiftool call for maximum performance"""
+def apply_all_metadata(file_path, create_date=None, modify_date=None, geo_data=None):
+    """
+    Apply all EXIF metadata changes in a single exiftool call for maximum performance.
+    
+    Args:
+        file_path: Path to the media file
+        create_date: datetime for DateTimeOriginal/CreateDate (from JSON metadata)
+        modify_date: datetime for ModifyDate (when dates conflicted)
+        geo_data: dict with latitude/longitude/altitude (from JSON geoData)
+    """
     try:
         cmd = ['exiftool', '-overwrite_original', '-q']
 
@@ -324,24 +350,50 @@ def apply_all_metadata(file_path, create_date=None, modify_date=None):
         if PERSON_NAME:
             cmd.append(f'-Artist={PERSON_NAME}')
 
-        # Handle timestamps
-        if create_date and modify_date:
-            # Conflicting dates - use earlier for creation, later for modification
+        # Handle timestamps from JSON metadata
+        if create_date:
             create_str = create_date.strftime('%Y:%m:%d %H:%M:%S')
-            modify_str = modify_date.strftime('%Y:%m:%d %H:%M:%S')
             cmd.extend([
                 f'-DateTimeOriginal={create_str}',
                 f'-CreateDate={create_str}',
-                f'-ModifyDate={modify_str}',
-                f'-FileModifyDate={modify_str}',
                 f'-FileCreateDate={create_str}',
             ])
+            
+            if modify_date:
+                # Conflicting dates - use later for modification
+                modify_str = modify_date.strftime('%Y:%m:%d %H:%M:%S')
+                cmd.extend([
+                    f'-ModifyDate={modify_str}',
+                    f'-FileModifyDate={modify_str}',
+                ])
+            else:
+                # Same date for all
+                cmd.extend([
+                    f'-ModifyDate={create_str}',
+                    f'-FileModifyDate={create_str}',
+                ])
         else:
-            # No conflicting dates - restore timestamps from existing EXIF
+            # No date from JSON - restore timestamps from existing EXIF
             cmd.extend([
                 '-FileModifyDate<DateTimeOriginal',
                 '-FileCreateDate<DateTimeOriginal',
             ])
+
+        # Add GPS coordinates if available
+        if geo_data:
+            lat = geo_data.get('latitude')
+            lon = geo_data.get('longitude')
+            alt = geo_data.get('altitude', 0)
+            
+            if lat is not None and lon is not None:
+                # Only write if coordinates are meaningful (not 0,0)
+                if abs(lat) > 0.0001 or abs(lon) > 0.0001:
+                    cmd.extend([
+                        f'-GPSLatitude={lat}',
+                        f'-GPSLongitude={lon}',
+                    ])
+                    if alt and alt != 0:
+                        cmd.append(f'-GPSAltitude={alt}')
 
         cmd.append(str(file_path))
 
@@ -371,7 +423,7 @@ def determine_project_folder_month(project_path):
             ext = file_path.suffix.lower()
 
             if ext in MEDIA_EXTENSIONS:
-                _, month, _, needs_review, _, _, _, _ = determine_destination(file_path)
+                _, month, _, needs_review, _, _, _, _, _ = determine_destination(file_path)
                 if month and not needs_review:
                     months.append(month)
 
@@ -417,7 +469,7 @@ def process_project_folder(project_path, source_folder):
                 ext = file_path.suffix.lower()
 
                 if ext in MEDIA_EXTENSIONS:
-                    y, _, _, needs_review, _, _, _, _ = determine_destination(file_path)
+                    y, _, _, needs_review, _, _, _, _, _ = determine_destination(file_path)
                     if y and not needs_review:
                         year = y
                         break
@@ -549,7 +601,6 @@ def process_regular_files(takeout_path):
         'media_files': 0,
         'moved': 0,
         'failed': 0,
-        'metadata': 0,
         'review': 0,
         'duplicates_deleted': 0,
         'skipped_existing': 0
@@ -622,7 +673,7 @@ def process_regular_files(takeout_path):
                                 print(f"  Warning: Could not move edited file {filename}: {e}")
 
                 # Determine destination for regular files
-                year, month, metadata_path, needs_review, reason, create_date, modify_date, used_filename_date = determine_destination(file_path)
+                year, month, metadata_path, needs_review, reason, create_date, modify_date, geo_data, used_filename_date = determine_destination(file_path)
 
                 # Get source folder relative to Google Photos (or _TO_REVIEW_)
                 try:
@@ -656,6 +707,10 @@ def process_regular_files(takeout_path):
                     # Store original filename before moving
                     original_filename = file_path.name
 
+                    # Write EXIF metadata BEFORE moving (if JSON provided date/geo)
+                    if not used_filename_date and (create_date or geo_data):
+                        apply_all_metadata(file_path, create_date, modify_date, geo_data)
+
                     # Move media file
                     success, moved_file = move_file_safely(file_path, dest_dir, create_date, modify_date)
                     if success:
@@ -666,19 +721,13 @@ def process_regular_files(takeout_path):
                         else:
                             print(f"  Moved {media_type}: {source_folder}/{original_filename} -> {year}/{MONTH_NAMES[month-1]}")
 
-                        # Handle metadata file based on how we determined the date
+                        # Always delete JSON after processing (EXIF already written)
                         if metadata_path and metadata_path.exists():
-                            if used_filename_date:
-                                # Filename provided date - delete JSON (merge_metadata.py will use filename too)
-                                metadata_path.unlink()
-                            else:
-                                # JSON provided date - move it so merge_metadata.py can embed it
-                                renamed_metadata = rename_metadata_to_match_media(original_filename, moved_file.name, metadata_path)
-                                if move_file_safely(renamed_metadata, dest_dir)[0]:
-                                    stats['metadata'] += 1
+                            metadata_path.unlink()
                     elif success is False and moved_file is None:
                         # File already exists from another person's import - skip it
                         stats['skipped_existing'] += 1
+                        print(f"  Skipped (exists): {source_folder}/{original_filename}")
                         # Also delete the metadata file if it exists
                         if metadata_path and metadata_path.exists():
                             metadata_path.unlink()
@@ -691,7 +740,6 @@ def process_regular_files(takeout_path):
     print(f"\nStats for {takeout_path.name}:")
     print(f"  Media files found: {stats['media_files']}")
     print(f"  Successfully moved: {stats['moved']}")
-    print(f"  Metadata moved: {stats['metadata']}")
     print(f"  Sent to review: {stats['review']}")
     print(f"  Duplicates deleted: {stats['duplicates_deleted']}")
     print(f"  Skipped (already exists): {stats['skipped_existing']}")
@@ -747,15 +795,28 @@ def process_project_folders(takeout_path):
             PROJECT_FILES.update(media_files_dict)
 
 
+def find_google_photos_dirs(base_dir):
+    """
+    Find all directories containing a 'Google Photos' subdirectory.
+    Returns list of (parent_path, label) tuples for processing.
+    """
+    results = []
+
+    for item in base_dir.iterdir():
+        if item.is_dir():
+            google_photos_path = item / GOOGLE_PHOTOS_DIR
+            if google_photos_path.exists() and google_photos_path.is_dir():
+                results.append((item, item.name))
+
+    return results
+
+
 def cleanup_empty_directories():
     """Remove empty directories and directories with only metadata files"""
     print("\n\nCleaning up empty directories...")
 
-    for takeout_num in range(1, 6):
-        if takeout_num == 1:
-            photos_dir = BASE_DIR / "Takeout" / GOOGLE_PHOTOS_DIR
-        else:
-            photos_dir = BASE_DIR / f"Takeout {takeout_num}" / GOOGLE_PHOTOS_DIR
+    for takeout_path, _ in find_google_photos_dirs(BASE_DIR):
+        photos_dir = takeout_path / GOOGLE_PHOTOS_DIR
 
         if not photos_dir.exists():
             continue
@@ -797,19 +858,14 @@ def cleanup_empty_directories():
 
 
 def archive_trash_directories():
-    """Move Trash and Public directories to _TO_REVIEW_ for final review"""
-    print("\n\nMoving Trash and Public directories to _TO_REVIEW_ for final review...")
+    """Move Trash directories to _TO_REVIEW_ for final review"""
+    print("\n\nMoving Trash directories to _TO_REVIEW_ for final review...")
 
     trash_archive_dir = REVIEW_DIR / "Trash_Archives"
     trash_archive_dir.mkdir(parents=True, exist_ok=True)
 
-    for takeout_num in range(1, 6):
-        if takeout_num == 1:
-            photos_dir = BASE_DIR / "Takeout" / GOOGLE_PHOTOS_DIR
-            source_label = "Takeout"
-        else:
-            photos_dir = BASE_DIR / f"Takeout {takeout_num}" / GOOGLE_PHOTOS_DIR
-            source_label = f"Takeout {takeout_num}"
+    for takeout_path, source_label in find_google_photos_dirs(BASE_DIR):
+        photos_dir = takeout_path / GOOGLE_PHOTOS_DIR
 
         if not photos_dir.exists():
             continue
@@ -897,6 +953,9 @@ def main():
     # Process each Takeout folder
     total_stats = defaultdict(int)
 
+    # Find all directories containing Google Photos
+    takeout_dirs = find_google_photos_dirs(BASE_DIR)
+
     # First pass: Move project folders (skip for _TO_REVIEW_)
     if not is_review_dir:
         print("\n" + "=" * 80)
@@ -917,14 +976,8 @@ def main():
                     media_files_dict = process_project_folder(item, f"ProjectsToProcess/{source_folder}")
                     PROJECT_FILES.update(media_files_dict)
 
-        for takeout_num in range(1, 6):
-            if takeout_num == 1:
-                takeout_path = BASE_DIR / "Takeout"
-            else:
-                takeout_path = BASE_DIR / f"Takeout {takeout_num}"
-
-            if takeout_path.exists():
-                process_project_folders(takeout_path)
+        for takeout_path, _ in takeout_dirs:
+            process_project_folders(takeout_path)
 
         print(f"\nTracked {len(PROJECT_FILES)} unique media files from project folders")
 
@@ -940,18 +993,12 @@ def main():
             for key, value in stats.items():
                 total_stats[key] += value
     else:
-        # Process Takeout directories
-        for takeout_num in range(1, 6):
-            if takeout_num == 1:
-                takeout_path = BASE_DIR / "Takeout"
-            else:
-                takeout_path = BASE_DIR / f"Takeout {takeout_num}"
-
-            if takeout_path.exists():
-                stats = process_regular_files(takeout_path)
-                if stats:
-                    for key, value in stats.items():
-                        total_stats[key] += value
+        # Process all Takeout directories found
+        for takeout_path, _ in takeout_dirs:
+            stats = process_regular_files(takeout_path)
+            if stats:
+                for key, value in stats.items():
+                    total_stats[key] += value
 
     # Clean up empty directories (skip for _TO_REVIEW_)
     if not is_review_dir:
@@ -964,7 +1011,6 @@ def main():
     print(f"Total media files found: {total_stats['media_files']}")
     print(f"Total media files sent to review: {total_stats['review']}")
     print(f"Total media files organized: {total_stats['moved']}")
-    print(f"Total metadata moved: {total_stats['metadata']}")
     print(f"Total duplicates deleted: {total_stats['duplicates_deleted']}")
     print(f"Total skipped (already exists): {total_stats['skipped_existing']}")
     print(f"Total failed: {total_stats['failed']}")
@@ -972,6 +1018,8 @@ def main():
     print(f"Organized videos location: {VIDEO_OUTPUT_DIR}\n")
     if total_stats['review'] > 0:
         print(f"Files needing review: {REVIEW_DIR}")
+    print("\nNOTE: Any files remaining in original Takeout directories are duplicates")
+    print("      and can be safely deleted.")
     print("\n" + "=" * 80)
 
 
