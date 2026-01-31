@@ -14,6 +14,8 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
+from media_utils import dates_match
+
 # Check if exiftool is available
 def check_exiftool():
     """Check if exiftool is installed"""
@@ -61,14 +63,7 @@ def find_matching_json(media_file):
     return None
 
 
-def dates_match(date1, date2):
-    """Check if two dates are within 3 months of each other"""
-    if date1 is None or date2 is None:
-        return True  # If either is None, consider them matching (no conflict)
-
-    # Calculate month difference
-    months_diff = abs((date1.year - date2.year) * 12 + (date1.month - date2.month))
-    return months_diff < 3
+# Note: dates_match is imported from media_utils
 
 
 def read_google_metadata(json_path):
@@ -328,7 +323,7 @@ def process_directory(directory, remove_json=False, preserve_existing=False, rec
             stats['total'] += 1
 
             # Find matching JSON - if no JSON exists, skip this file entirely
-            # (nothing to merge, and organize_photos.py already handled date-based organization)
+            # (nothing to merge, and organize_media.py already handled date-based organization)
             json_file = find_matching_json(media_file)
             if not json_file:
                 stats['skipped_no_json'] += 1

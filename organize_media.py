@@ -6,16 +6,29 @@ Google Takeout Photo Organization Script
 - Flags photos with conflicting photoTakenTime vs creationTime
 """
 
+import argparse
+import mimetypes
 import os
-import json
+import re
 import shutil
 import subprocess
 import sys
-import re
-import argparse
+from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from collections import defaultdict
+from typing import Optional
+
+from build_file_index import build_file_index
+from media_utils import (
+    MEDIA_EXTENSIONS,
+    MONTH_NAMES,
+    PHOTO_EXTENSIONS,
+    VIDEO_EXTENSIONS,
+    dates_match,
+    get_metadata_path,
+    parse_json_metadata,
+)
 
 # Base directory containing all Takeout folders
 SCRIPT_DIR = Path(__file__).parent
@@ -24,18 +37,6 @@ OUTPUT_DIR = SCRIPT_DIR / "Organized_Photos"
 VIDEO_OUTPUT_DIR = SCRIPT_DIR / "Organized_Videos"
 REVIEW_DIR = OUTPUT_DIR / "_TO_REVIEW_"
 GOOGLE_PHOTOS_DIR = "Google Photos"
-
-# Media file extensions to process
-PHOTO_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.heic', '.heif'}
-VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v', '.3gp', '.wmv', '.MP4', '.MP'}
-MEDIA_EXTENSIONS = PHOTO_EXTENSIONS | VIDEO_EXTENSIONS
-
-# Month names for directory creation
-MONTH_NAMES = [
-    "01 January", "02 February", "03 March", "04 April",
-    "05 May", "06 June", "07 July", "08 August",
-    "09 September", "10 October", "11 November", "12 December"
-]
 
 # Directories to skip (only Trash - Public will be sorted normally)
 SKIP_DIRS = {'Trash'}
@@ -74,141 +75,394 @@ def is_project_folder(folder_name):
     return True
 
 
-def get_metadata_path(media_file):
-    """Find the supplemental metadata file for a media file"""
-    base_name = media_file.name
-    directory = media_file.parent
+# ============================================================================
+# DATA STRUCTURES
+# ============================================================================
 
-    # Try exact match first
-    exact_match = directory / f"{base_name}.json"
-    if exact_match.exists():
-        return exact_match
+@dataclass
+class FileDestination:
+    """
+    Result of analyzing a media file to determine its destination.
 
-    # Use wildcard to match any JSON with the media filename as prefix
-    # Handles all truncation variations
-    matches = list(directory.glob(f"{base_name}.*.json"))
-    if matches:
-        return matches[0]
+    Consolidates the 10 separate return values from determine_destination()
+    into a single, self-documenting object.
+    """
+    year: Optional[int] = None
+    month: Optional[int] = None
+    metadata_path: Optional[Path] = None
+    needs_review: bool = False
+    reason: str = ""
+    create_date: Optional[datetime] = None
+    modify_date: Optional[datetime] = None
+    geo_data: Optional[dict] = None
+    used_filename_date: bool = False
+    inferred_year: Optional[int] = None
 
-    return None
+    @property
+    def has_valid_date(self):
+        """Check if we have a valid year/month for organization."""
+        return self.year is not None and self.month is not None
+
+    @property
+    def needs_exif_write(self):
+        """Check if we need to write date to EXIF (not already from filename/EXIF)."""
+        return not self.used_filename_date and self.create_date is not None
 
 
-def parse_metadata(metadata_path):
-    """Parse metadata file and extract photoTakenTime, creationTime, and geoData"""
+# ============================================================================
+# FILE TYPE DETECTION AND EXTENSION CORRECTION
+# ============================================================================
+
+# Mapping of file magic bytes to correct extension
+# Format: (magic_bytes, offset, correct_extension)
+FILE_SIGNATURES = [
+    (b'RIFF', 0, None),  # RIFF container - need to check subtype
+    (b'WEBP', 8, '.webp'),  # WebP (RIFF subtype at offset 8)
+    (b'\xff\xd8\xff', 0, '.jpg'),  # JPEG
+    (b'\x89PNG\r\n\x1a\n', 0, '.png'),  # PNG
+    (b'GIF87a', 0, '.gif'),  # GIF87a
+    (b'GIF89a', 0, '.gif'),  # GIF89a
+    (b'\x00\x00\x00', 0, None),  # Could be MP4/MOV - check ftyp
+    (b'ftyp', 4, '.mp4'),  # MP4/MOV (ftyp at offset 4)
+]
+
+
+def detect_actual_file_type(file_path):
+    """
+    Detect actual file type by reading magic bytes, not trusting extension.
+
+    Returns the correct extension (e.g., '.webp', '.jpg') or None if unknown.
+    """
     try:
-        with open(metadata_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+        with open(file_path, 'rb') as f:
+            header = f.read(16)
 
-        photo_taken = None
-        creation_time = None
-        geo_data = None
+        if len(header) < 12:
+            return None
 
-        # Extract photoTakenTime
-        if 'photoTakenTime' in data and 'timestamp' in data['photoTakenTime']:
-            try:
-                timestamp = int(data['photoTakenTime']['timestamp'])
-                photo_taken = datetime.fromtimestamp(timestamp)
-            except (ValueError, OSError):
-                pass
+        # Check for RIFF container (WebP uses RIFF)
+        if header[0:4] == b'RIFF' and header[8:12] == b'WEBP':
+            return '.webp'
 
-        # Extract creationTime
-        if 'creationTime' in data and 'timestamp' in data['creationTime']:
-            try:
-                timestamp = int(data['creationTime']['timestamp'])
-                creation_time = datetime.fromtimestamp(timestamp)
-            except (ValueError, OSError):
-                pass
+        # Check for JPEG
+        if header[0:3] == b'\xff\xd8\xff':
+            return '.jpg'
 
-        # Extract geoData (only if coordinates are non-zero)
-        if 'geoData' in data:
-            geo = data['geoData']
-            lat = geo.get('latitude', 0)
-            lon = geo.get('longitude', 0)
-            if lat != 0 or lon != 0:
-                geo_data = {
-                    'latitude': lat,
-                    'longitude': lon,
-                    'altitude': geo.get('altitude', 0)
-                }
+        # Check for PNG
+        if header[0:8] == b'\x89PNG\r\n\x1a\n':
+            return '.png'
 
-        return photo_taken, creation_time, geo_data
+        # Check for GIF
+        if header[0:6] in (b'GIF87a', b'GIF89a'):
+            return '.gif'
 
-    except json.JSONDecodeError as e:
-        print(f"  Warning: Could not parse metadata {metadata_path}: {e}")
+        # Check for HEIC/HEIF (ftyp box with heic/mif1/etc brand)
+        if header[4:8] == b'ftyp':
+            brand = header[8:12]
+            if brand in (b'heic', b'heix', b'mif1', b'msf1'):
+                return '.heic'
+            # Otherwise likely MP4/MOV
+            return '.mp4'
 
-    return None, None, None
+        return None
+    except Exception:
+        return None
+
+
+def fix_file_extension_if_needed(file_path):
+    """
+    Check if file extension matches actual file type, rename if needed.
+
+    Returns:
+        Path: The (possibly renamed) file path
+        bool: True if file was renamed, False otherwise
+    """
+    file_path = Path(file_path)
+    current_ext = file_path.suffix.lower()
+    actual_ext = detect_actual_file_type(file_path)
+
+    if actual_ext is None:
+        return file_path, False
+
+    # Normalize extensions for comparison
+    ext_equivalents = {
+        '.jpeg': '.jpg',
+        '.jpe': '.jpg',
+    }
+    normalized_current = ext_equivalents.get(current_ext, current_ext)
+    normalized_actual = ext_equivalents.get(actual_ext, actual_ext)
+
+    if normalized_current == normalized_actual:
+        return file_path, False
+
+    # Extension mismatch - rename the file
+    new_path = file_path.with_suffix(actual_ext)
+
+    # Handle collision
+    if new_path.exists():
+        counter = 1
+        stem = file_path.stem
+        while new_path.exists():
+            new_path = file_path.parent / f"{stem}_{counter}{actual_ext}"
+            counter += 1
+
+    try:
+        file_path.rename(new_path)
+        print(f"    Fixed extension: {file_path.name} -> {new_path.name}")
+        return new_path, True
+    except Exception as e:
+        print(f"    Warning: Could not rename {file_path.name}: {e}")
+        return file_path, False
+
+
+# ============================================================================
+# WALLPAPER/BACKGROUND DETECTION
+# ============================================================================
+
+def is_wallpaper_filename(filename):
+    """
+    Detect if a filename matches common wallpaper/background naming patterns.
+
+    These files typically have no meaningful date metadata and should be
+    separated from personal life photos.
+
+    Patterns detected:
+    - Resolution prefix: "1920x1080 Name.jpg", "2560x1440-Name.jpg"
+    - Shorthand resolution: "4k Name.jpg", "2k Name.jpg", "8k Name.jpg"
+    - Ultrawide prefix: "Ultrawide Name.jpg" (and typo "Untrawide")
+
+    Returns True if filename matches a wallpaper pattern.
+    """
+    name = filename.stem if hasattr(filename, 'stem') else str(filename)
+
+    # Pattern 1: Resolution prefix like "1920x1080 " or "2560x1440-"
+    # Matches: "1920x1080 Star Wars.jpg", "2800x1200-Legend.jpg"
+    if re.match(r'^\d{3,4}x\d{3,4}[\s_-]', name):
+        return True
+
+    # Pattern 2: Shorthand resolution like "4k " or "8k "
+    # Matches: "4k Star Wars.jpg", "2k Nature.jpg", "8k Hitman.jpg"
+    if re.match(r'^[248][kK][\s_-]', name):
+        return True
+
+    # Pattern 3: Ultrawide prefix (including typo "Untrawide")
+    # Matches: "Ultrawide Star Wars.jpg", "Untrawide Dragon.jpg"
+    if re.match(r'^[Uu](?:ltra|ntra)[Ww]ide[\s_-]', name):
+        return True
+
+    return False
+
+
+# ============================================================================
+# DATE EXTRACTION
+# ============================================================================
+
+# Note: get_metadata_path is imported from media_utils
+# Note: parse_json_metadata is imported from media_utils (replaces local parse_metadata)
 
 
 def get_date_from_filename(filename):
-    """Try to extract date from filename patterns containing YYYYMMDD format"""
+    """
+    Try to extract date and time from various filename patterns.
+
+    Supported patterns (in priority order):
+    1. YYYYMMDD_HHMMSS - 8 digits, separator, 6+ digits (IMG_20200927_123456)
+    2. YYYY-MM-DD-HH-MM-SS - ISO-ish with hyphens (Screenshot_2017-01-26-13-52-51)
+    3. YYYYMMDD - 8 consecutive digits (20200927)
+    4. YYYY-MM-DD - ISO date with hyphens (2017-01-26_something)
+    5. YYYY-MM_ or YYYY-MM- - Year-month only at start (2010-03_Jacen_Announcement)
+
+    Returns datetime object or None if no valid date found.
+    """
     name = filename.stem
 
-    # Look for 8 consecutive digits that form a valid date
-    # Matches patterns like: IMG_20200927_123456, P_20240504_113916, 20200927_file, etc.
-    match = re.search(r'(\d{8})', name)
-    if match:
-        date_part = match.group(1)
+    # Pattern 1: YYYYMMDD_HHMMSS (14+ digits with separator)
+    # Matches: IMG_20200927_123456, VID_20240504_113916789
+    datetime_match = re.search(r'(\d{8})[_-](\d{6,})', name)
+    if datetime_match:
+        date_part = datetime_match.group(1)
+        time_part = datetime_match.group(2)[:6]
         try:
             year = int(date_part[0:4])
             month = int(date_part[4:6])
             day = int(date_part[6:8])
-            # Validate date is reasonable
+            hour = int(time_part[0:2])
+            minute = int(time_part[2:4])
+            second = int(time_part[4:6])
+            if (1990 <= year <= 2100 and 1 <= month <= 12 and 1 <= day <= 31 and
+                0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= second <= 59):
+                return datetime(year, month, day, hour, minute, second)
+        except ValueError:
+            pass
+
+    # Pattern 2: YYYY-MM-DD-HH-MM-SS with hyphens throughout
+    # Matches: Screenshot_2017-01-26-13-52-51
+    hyphen_datetime_match = re.search(r'(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})', name)
+    if hyphen_datetime_match:
+        try:
+            year = int(hyphen_datetime_match.group(1))
+            month = int(hyphen_datetime_match.group(2))
+            day = int(hyphen_datetime_match.group(3))
+            hour = int(hyphen_datetime_match.group(4))
+            minute = int(hyphen_datetime_match.group(5))
+            second = int(hyphen_datetime_match.group(6))
+            if (1990 <= year <= 2100 and 1 <= month <= 12 and 1 <= day <= 31 and
+                0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= second <= 59):
+                return datetime(year, month, day, hour, minute, second)
+        except ValueError:
+            pass
+
+    # Pattern 3: 8 consecutive digits (YYYYMMDD)
+    date_match = re.search(r'(\d{8})', name)
+    if date_match:
+        date_part = date_match.group(1)
+        try:
+            year = int(date_part[0:4])
+            month = int(date_part[4:6])
+            day = int(date_part[6:8])
             if 1990 <= year <= 2100 and 1 <= month <= 12 and 1 <= day <= 31:
                 return datetime(year, month, day)
+        except ValueError:
+            pass
+
+    # Pattern 4: YYYY-MM-DD with hyphens (ISO date)
+    # Matches: 2017-01-26_photo, photo_2017-01-26
+    iso_date_match = re.search(r'(\d{4})-(\d{2})-(\d{2})', name)
+    if iso_date_match:
+        try:
+            year = int(iso_date_match.group(1))
+            month = int(iso_date_match.group(2))
+            day = int(iso_date_match.group(3))
+            if 1990 <= year <= 2100 and 1 <= month <= 12 and 1 <= day <= 31:
+                return datetime(year, month, day)
+        except ValueError:
+            pass
+
+    # Pattern 5: YYYY-MM at start of filename (year-month only, use day 1)
+    # Matches: 2010-03_Jacen_Announcement, 2015-12-Christmas
+    # Must be at start or after underscore/hyphen to avoid false positives
+    year_month_match = re.match(r'^(\d{4})-(\d{2})[_-]', name)
+    if year_month_match:
+        try:
+            year = int(year_month_match.group(1))
+            month = int(year_month_match.group(2))
+            if 1990 <= year <= 2100 and 1 <= month <= 12:
+                return datetime(year, month, 1)
         except ValueError:
             pass
 
     return None
 
 
-def dates_match(date1, date2):
-    """Check if two dates are within 3 months of each other"""
-    if date1 is None or date2 is None:
-        return True  # If either is None, consider them matching (no conflict)
+def get_exif_date(media_file):
+    """
+    Read existing EXIF dates from a media file using exiftool.
+    Returns a datetime if a valid date is found that is more than one month in the past,
+    otherwise returns None.
 
-    # Calculate month difference
-    months_diff = abs((date1.year - date2.year) * 12 + (date1.month - date2.month))
-    return months_diff < 3
+    Checks DateTimeOriginal and CreateDate EXIF fields. These are the standard fields
+    for when a photo was actually taken.
+    """
+    try:
+        result = subprocess.run(
+            ['exiftool', '-DateTimeOriginal', '-CreateDate', '-s', '-s', '-s', str(media_file)],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode != 0:
+            return None
+
+        # Output will have up to two lines: DateTimeOriginal and CreateDate
+        lines = result.stdout.strip().split('\n')
+        one_month_ago = datetime.now().replace(day=1)  # First of current month as threshold
+
+        for line in lines:
+            if not line.strip():
+                continue
+
+            # Parse EXIF date format: "YYYY:MM:DD HH:MM:SS"
+            try:
+                parsed_date = datetime.strptime(line.strip(), '%Y:%m:%d %H:%M:%S')
+
+                # Only accept dates more than one month in the past
+                # This filters out bogus default dates like 1970-01-01 or future dates
+                if parsed_date < one_month_ago:
+                    return parsed_date
+
+            except ValueError:
+                continue
+
+        return None
+
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+
+
+# Note: dates_match is imported from media_utils
+
+
+def extract_year_from_path(file_path):
+    """
+    Extract year from the file's path components.
+    Prioritizes "Photos from YYYY" patterns, then searches all path parts for 4-digit years.
+    Returns the year as an integer, or None if no year found.
+    """
+    path_str = str(file_path)
+
+    # First priority: "Photos from YYYY" pattern (Google Takeout standard)
+    photos_from_match = re.search(r'Photos from (\d{4})', path_str, re.IGNORECASE)
+    if photos_from_match:
+        year = int(photos_from_match.group(1))
+        if 1990 <= year <= 2100:
+            return year
+
+    # Second priority: Any 4-digit year in the path (excluding filename)
+    # Split path and check each directory component
+    parts = file_path.parts[:-1]  # Exclude filename
+    for part in parts:
+        # Look for standalone 4-digit numbers that could be years
+        year_match = re.search(r'\b(\d{4})\b', part)
+        if year_match:
+            year = int(year_match.group(1))
+            if 1990 <= year <= 2100:
+                return year
+
+    return None
 
 
 def determine_destination(media_file):
     """
     Determine the year/month destination for a media file.
-    Returns: (year, month, metadata_path, needs_review, reason, create_date, modify_date, geo_data, used_filename_date)
+
+    Returns a FileDestination object containing all relevant info for organizing
+    and writing metadata to the file.
 
     Priority order for date extraction (for performance, filename is checked first):
     1. Filename date pattern (YYYYMMDD) - fastest, no JSON I/O required
     2. JSON metadata (photoTakenTime/creationTime) - only parsed if filename has no date
-
-    Note: metadata_path is always looked up so the file can be deleted after processing.
-
-    create_date and modify_date are used when dates conflict - earlier becomes creation,
-    later becomes modification.
-
-    geo_data: dict with latitude/longitude/altitude if available from JSON
-
-    used_filename_date: True if filename provided the date (no EXIF write needed for dates)
+    3. Existing EXIF data - last resort fallback
     """
-    chosen_date = None
-    create_date = None
-    modify_date = None
-    geo_data = None
-    needs_review = False
-    reason = ""
+    result = FileDestination()
 
     # Always look up metadata path so we can delete it after processing
-    metadata_path = get_metadata_path(media_file)
+    result.metadata_path = get_metadata_path(media_file)
 
     # First, try to extract date from filename (fastest - no JSON parsing required)
     filename_date = get_date_from_filename(media_file)
+
     if filename_date:
         # Filename date is authoritative when present - skip metadata parsing entirely
-        # Return used_filename_date=True so caller knows no date EXIF write needed
-        return filename_date.year, filename_date.month, metadata_path, False, "", None, None, None, True
+        result.year = filename_date.year
+        result.month = filename_date.month
+        result.create_date = filename_date
+        result.used_filename_date = True
+        return result
 
     # Filename didn't have a parseable date, so parse JSON metadata
-    if metadata_path:
-        photo_taken_date, creation_date, geo_data = parse_metadata(metadata_path)
+    if result.metadata_path:
+        photo_taken_date, creation_date, result.geo_data = parse_json_metadata(result.metadata_path)
 
         # Check if dates conflict (different year/month by 3+ months)
         if photo_taken_date and creation_date:
@@ -216,32 +470,54 @@ def determine_destination(media_file):
                 # Use earlier date for organization, store both for EXIF
                 if photo_taken_date < creation_date:
                     chosen_date = photo_taken_date
-                    create_date = photo_taken_date
-                    modify_date = creation_date
+                    result.create_date = photo_taken_date
+                    result.modify_date = creation_date
                 else:
                     chosen_date = creation_date
-                    create_date = creation_date
-                    modify_date = photo_taken_date
-                reason = f"Using earlier date: {create_date.strftime('%Y-%m-%d')} (later: {modify_date.strftime('%Y-%m-%d')})"
+                    result.create_date = creation_date
+                    result.modify_date = photo_taken_date
+
+                result.reason = f"Using earlier date: {result.create_date.strftime('%Y-%m-%d')} (later: {result.modify_date.strftime('%Y-%m-%d')})"
             else:
                 # Dates match (within 3 months), use photoTakenTime
                 chosen_date = photo_taken_date
-                create_date = photo_taken_date
+                result.create_date = photo_taken_date
         elif photo_taken_date:
             chosen_date = photo_taken_date
-            create_date = photo_taken_date
+            result.create_date = photo_taken_date
         elif creation_date:
             chosen_date = creation_date
-            create_date = creation_date
+            result.create_date = creation_date
+        else:
+            chosen_date = None
 
-    # If we still don't have a date, send to review
-    if not chosen_date:
-        needs_review = True
-        reason = "No date in metadata or filename"
-        return None, None, metadata_path, needs_review, reason, None, None, None, False
+        if chosen_date:
+            result.year = chosen_date.year
+            result.month = chosen_date.month
+            return result
 
-    # JSON provided the date - used_filename_date=False means we need to write EXIF
-    return chosen_date.year, chosen_date.month, metadata_path, needs_review, reason, create_date, modify_date, geo_data, False
+    # If we still don't have a date, try reading existing EXIF as last resort
+    exif_date = get_exif_date(media_file)
+
+    if exif_date:
+        result.year = exif_date.year
+        result.month = exif_date.month
+        result.create_date = exif_date
+        result.used_filename_date = True  # EXIF already has date, no need to write
+        result.reason = f"Using existing EXIF date: {exif_date.strftime('%Y-%m-%d')}"
+        return result
+
+    # No date found - mark for review
+    result.needs_review = True
+    result.inferred_year = extract_year_from_path(media_file)
+    result.reason = "No date in metadata, filename, or EXIF"
+
+    if result.inferred_year:
+        result.reason += f" (inferred year {result.inferred_year} from path)"
+        # Create January 1 date for EXIF writing
+        result.create_date = datetime(result.inferred_year, 1, 1, 0, 0, 0)
+
+    return result
 
 
 def create_destination_path(year, month, output_base_dir=OUTPUT_DIR):
@@ -252,31 +528,84 @@ def create_destination_path(year, month, output_base_dir=OUTPUT_DIR):
     return month_dir
 
 
-def move_file_safely(src, dst_dir, create_date=None, modify_date=None):
-    """Move file to destination, handling name conflicts and adding person metadata"""
+def move_file_safely(src, dst_dir, create_date=None, modify_date=None, file_index=None):
+    """Move file to destination, handling name conflicts and adding person metadata
+
+    Args:
+        file_index: Optional dict mapping (base_name, ext, is_edited) -> list of file paths
+                   for fast duplicate detection without filesystem operations
+    """
     base = src.stem
     ext = src.suffix.lower()
     is_media = ext in MEDIA_EXTENSIONS
 
-    original_name = src.name
+    # Determine if current file is an -edited variant (needed for index operations)
+    is_edited = base.endswith('-edited') or any(base.endswith(f'-edited_{suffix}') for suffix in ['_' + PERSON_NAME] if PERSON_NAME)
+
+    # Strip any existing person suffix from the base name (for both index and glob operations)
+    base_without_suffix = base
+    if PERSON_NAME and base.endswith(f"_{PERSON_NAME}"):
+        base_without_suffix = base[:-len(PERSON_NAME)-1]
+    else:
+        # Try to detect other person suffixes (pattern: ends with _Name)
+        match = re.match(r'^(.+)_([A-Z][a-z]+)$', base)
+        if match:
+            base_without_suffix = match.group(1)
+
+    # Also strip -edited suffix if present for base comparison
+    if base_without_suffix.endswith('-edited'):
+        base_without_suffix = base_without_suffix[:-7]  # Remove '-edited'
 
     # For media files, check if file already exists with any person suffix (first person in wins)
     if is_media:
-        # Strip any existing person suffix from the base name
-        base_without_suffix = base
-        if PERSON_NAME and base.endswith(f"_{PERSON_NAME}"):
-            base_without_suffix = base[:-len(PERSON_NAME)-1]
-        else:
-            # Try to detect other person suffixes (pattern: ends with _Name)
-            match = re.match(r'^(.+)_([A-Z][a-z]+)$', base)
-            if match:
-                base_without_suffix = match.group(1)
 
         # Check if any file with this base name already exists (with any suffix or no suffix)
-        existing_files = list(dst_dir.glob(f"{base_without_suffix}*{ext}"))
-        if existing_files:
-            # File already exists from another person's import - skip this duplicate
-            return False, None
+        # BUT: originals and -edited variants are NOT duplicates of each other
+
+        if file_index is not None:
+            # Use index for fast lookup (no filesystem operations)
+            # Index already separates originals from -edited variants
+            index_key = (base_without_suffix, ext, is_edited)
+            existing_files = file_index.get(index_key, [])
+
+            # With index, files are already filtered by is_edited status
+            if existing_files:
+                # Delete the duplicate source file
+                try:
+                    src.unlink()
+                except Exception:
+                    pass  # Silently continue if deletion fails
+                return False, None
+        else:
+            # Fall back to filesystem glob if no index provided
+            existing_files = list(dst_dir.glob(f"{base_without_suffix}*{ext}"))
+
+            # Filter to exclude -edited variants if checking original, and vice versa
+            if existing_files:
+                actual_duplicates = []
+                for existing in existing_files:
+                    existing_base = existing.stem
+                    # Remove person suffix from existing file for comparison
+                    if PERSON_NAME and existing_base.endswith(f"_{PERSON_NAME}"):
+                        existing_base = existing_base[:-len(PERSON_NAME)-1]
+                    else:
+                        match = re.match(r'^(.+)_([A-Z][a-z]+)$', existing_base)
+                        if match:
+                            existing_base = match.group(1)
+
+                    existing_is_edited = existing_base.endswith('-edited')
+
+                    # Only consider it a duplicate if both are edited or both are not edited
+                    if is_edited == existing_is_edited:
+                        actual_duplicates.append(existing)
+
+                if actual_duplicates:
+                    # File already exists - delete this duplicate
+                    try:
+                        src.unlink()
+                    except Exception:
+                        pass  # Silently continue if deletion fails
+                    return False, None
 
     # Rename source file first if person name is specified (only for media files)
     # Check if person name suffix doesn't already exist
@@ -307,6 +636,13 @@ def move_file_safely(src, dst_dir, create_date=None, modify_date=None):
             # Combine all EXIF operations into a single exiftool call for performance
             apply_all_metadata(dst, create_date, modify_date)
 
+            # Update file_index with newly moved file
+            if file_index is not None:
+                index_key = (base_without_suffix, ext, is_edited)
+                if index_key not in file_index:
+                    file_index[index_key] = []
+                file_index[index_key].append(dst)
+
         return True, dst
     except Exception as e:
         print(f"  Error moving {src} to {dst}: {e}")
@@ -336,14 +672,23 @@ def rename_metadata_to_match_media(media_original_name, media_new_name, metadata
 def apply_all_metadata(file_path, create_date=None, modify_date=None, geo_data=None):
     """
     Apply all EXIF metadata changes in a single exiftool call for maximum performance.
-    
+
+    If EXIF write fails due to file format issues, attempts to fix the file extension
+    and retry the write operation.
+
     Args:
         file_path: Path to the media file
         create_date: datetime for DateTimeOriginal/CreateDate (from JSON metadata)
         modify_date: datetime for ModifyDate (when dates conflicted)
         geo_data: dict with latitude/longitude/altitude (from JSON geoData)
+
+    Returns:
+        Path: The (possibly renamed) file path
     """
-    try:
+    file_path = Path(file_path)
+
+    def build_exiftool_cmd(target_path):
+        """Build the exiftool command for the given target path."""
         cmd = ['exiftool', '-overwrite_original', '-q']
 
         # Add person name if specified
@@ -358,7 +703,7 @@ def apply_all_metadata(file_path, create_date=None, modify_date=None, geo_data=N
                 f'-CreateDate={create_str}',
                 f'-FileCreateDate={create_str}',
             ])
-            
+
             if modify_date:
                 # Conflicting dates - use later for modification
                 modify_str = modify_date.strftime('%Y:%m:%d %H:%M:%S')
@@ -384,7 +729,7 @@ def apply_all_metadata(file_path, create_date=None, modify_date=None, geo_data=N
             lat = geo_data.get('latitude')
             lon = geo_data.get('longitude')
             alt = geo_data.get('altitude', 0)
-            
+
             if lat is not None and lon is not None:
                 # Only write if coordinates are meaningful (not 0,0)
                 if abs(lat) > 0.0001 or abs(lon) > 0.0001:
@@ -395,11 +740,36 @@ def apply_all_metadata(file_path, create_date=None, modify_date=None, geo_data=N
                     if alt and alt != 0:
                         cmd.append(f'-GPSAltitude={alt}')
 
-        cmd.append(str(file_path))
+        cmd.append(str(target_path))
+        return cmd
 
-        subprocess.run(cmd, capture_output=True, check=False)
+    try:
+        cmd = build_exiftool_cmd(file_path)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+        # Check for format-related errors that might be fixed by correcting extension
+        if result.returncode != 0:
+            error_output = (result.stderr or '') + (result.stdout or '')
+            format_errors = ['RIFF format error', 'Error reading RIFF', 'Not a valid']
+
+            if any(err in error_output for err in format_errors):
+                # Try fixing the file extension
+                new_path, was_renamed = fix_file_extension_if_needed(file_path)
+
+                if was_renamed:
+                    # Retry with corrected extension
+                    cmd = build_exiftool_cmd(new_path)
+                    retry_result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+                    if retry_result.returncode != 0:
+                        # Still failed - some files just don't support EXIF
+                        pass
+
+                    return new_path
+
+        return file_path
     except Exception:
-        pass  # Silently fail - metadata is not critical
+        return file_path
 
 
 def extract_year_from_folder_name(folder_name):
@@ -423,9 +793,9 @@ def determine_project_folder_month(project_path):
             ext = file_path.suffix.lower()
 
             if ext in MEDIA_EXTENSIONS:
-                _, month, _, needs_review, _, _, _, _, _ = determine_destination(file_path)
-                if month and not needs_review:
-                    months.append(month)
+                dest = determine_destination(file_path)
+                if dest.month and not dest.needs_review:
+                    months.append(dest.month)
 
     if months:
         # Return the most common month
@@ -458,6 +828,22 @@ def process_project_folder(project_path, source_folder):
     folder_name = project_path.name
     print(f"\nProcessing project folder: {source_folder}/{folder_name}")
 
+    # First, check if this folder contains any media files at all
+    # If not, leave it in place (likely just metadata JSON files)
+    has_media = False
+    for root, dirs, files in os.walk(project_path):
+        for filename in files:
+            ext = Path(filename).suffix.lower()
+            if ext in MEDIA_EXTENSIONS:
+                has_media = True
+                break
+        if has_media:
+            break
+
+    if not has_media:
+        print("  Skipping: No media files found (leaving in source directory)")
+        return {}
+
     # Try to determine year from folder name
     year = extract_year_from_folder_name(folder_name)
 
@@ -469,9 +855,9 @@ def process_project_folder(project_path, source_folder):
                 ext = file_path.suffix.lower()
 
                 if ext in MEDIA_EXTENSIONS:
-                    y, _, _, needs_review, _, _, _, _, _ = determine_destination(file_path)
-                    if y and not needs_review:
-                        year = y
+                    dest = determine_destination(file_path)
+                    if dest.year and not dest.needs_review:
+                        year = dest.year
                         break
             if year:
                 break
@@ -584,8 +970,13 @@ def process_project_folder(project_path, source_folder):
             return media_files
 
 
-def process_regular_files(takeout_path):
-    """Process regular photo files (not in project folders)"""
+def process_regular_files(takeout_path, file_index=None):
+    """Process regular photo files (not in project folders)
+
+    Args:
+        takeout_path: Path to the Takeout directory to process
+        file_index: Optional dict for fast duplicate detection
+    """
     # Check if this is the _TO_REVIEW_ directory (no Google Photos subdirectory)
     if "_TO_REVIEW_" in str(takeout_path):
         photos_dir = takeout_path
@@ -654,6 +1045,16 @@ def process_regular_files(takeout_path):
                             # Move this edited file into the project folder with original
                             project_folder = PROJECT_FILES[base_filename]
                             try:
+                                # Apply EXIF metadata BEFORE moving (project was already processed)
+                                metadata_path = get_metadata_path(file_path)
+                                if metadata_path and metadata_path.exists():
+                                    photo_taken, _, geo_data = parse_json_metadata(metadata_path)
+                                    # photo_taken is already a datetime object from parse_metadata
+                                    if photo_taken or geo_data:
+                                        apply_all_metadata(file_path, photo_taken, None, geo_data)
+                                    # Delete JSON after applying metadata
+                                    metadata_path.unlink()
+
                                 dest = project_folder / filename
                                 if dest.exists():
                                     # Handle conflicts
@@ -664,16 +1065,12 @@ def process_regular_files(takeout_path):
                                 shutil.move(str(file_path), str(dest))
                                 stats['moved'] += 1
                                 print(f"  Moved edited variant: {filename} -> {project_folder.name}/")
-                                # Move metadata too
-                                metadata_path = get_metadata_path(file_path)
-                                if metadata_path and metadata_path.exists():
-                                    shutil.move(str(metadata_path), str(project_folder / metadata_path.name))
-                                continue
                             except Exception as e:
-                                print(f"  Warning: Could not move edited file {filename}: {e}")
+                                print(f"  Warning: Could not move edited variant {filename}: {e}")
+                            continue
 
-                # Determine destination for regular files
-                year, month, metadata_path, needs_review, reason, create_date, modify_date, geo_data, used_filename_date = determine_destination(file_path)
+                # Call determine_destination to get file info
+                dest = determine_destination(file_path)
 
                 # Get source folder relative to Google Photos (or _TO_REVIEW_)
                 try:
@@ -684,53 +1081,79 @@ def process_regular_files(takeout_path):
                 except (ValueError, IndexError):
                     source_folder = "unknown"
 
-                if needs_review:
-                    # Move to review directory
-                    REVIEW_DIR.mkdir(parents=True, exist_ok=True)
-                    success, _ = move_file_safely(file_path, REVIEW_DIR)
+                # Check for wallpaper/background files first - route to separate folder
+                if is_wallpaper_filename(file_path):
+                    wallpapers_dir = REVIEW_DIR / "Wallpapers"
+                    wallpapers_dir.mkdir(parents=True, exist_ok=True)
+
+                    success, _ = move_file_safely(file_path, wallpapers_dir, file_index=file_index)
                     if success:
                         stats['review'] += 1
-                        print(f"  Review: {source_folder}/{file_path.name} ({reason})")
+                        print(f"  Moved wallpaper: {source_folder}/{file_path.name}")
+
+                        # Delete metadata if it exists (no need for wallpapers)
+                        if dest.metadata_path and dest.metadata_path.exists():
+                            dest.metadata_path.unlink()
+                    continue
+
+                if dest.needs_review:
+                    # Create year-based subdirectory in review if we have an inferred year
+                    if dest.inferred_year:
+                        review_dest_dir = REVIEW_DIR / str(dest.inferred_year)
+                    else:
+                        review_dest_dir = REVIEW_DIR
+
+                    review_dest_dir.mkdir(parents=True, exist_ok=True)
+
+                    # Write EXIF date if we inferred a year (Jan 1 of that year)
+                    if dest.create_date:
+                        apply_all_metadata(file_path, dest.create_date, None, None)
+
+                    success, _ = move_file_safely(file_path, review_dest_dir, file_index=file_index)
+                    if success:
+                        stats['review'] += 1
+                        print(f"  Review: {source_folder}/{file_path.name} ({dest.reason})")
 
                         # Move metadata too (we need it to figure out the date later)
-                        if metadata_path and metadata_path.exists():
-                            move_file_safely(metadata_path, REVIEW_DIR)
+                        if dest.metadata_path and dest.metadata_path.exists():
+                            move_file_safely(dest.metadata_path, review_dest_dir, file_index=file_index)
 
-                elif year and month:
+                elif dest.year and dest.month:
                     # Determine if this is a photo or video
                     is_video = ext in VIDEO_EXTENSIONS
                     output_base = VIDEO_OUTPUT_DIR if is_video else OUTPUT_DIR
 
                     # Create destination directory
-                    dest_dir = create_destination_path(year, month, output_base)
+                    dest_dir = create_destination_path(dest.year, dest.month, output_base)
 
                     # Store original filename before moving
                     original_filename = file_path.name
 
-                    # Write EXIF metadata BEFORE moving (if JSON provided date/geo)
-                    if not used_filename_date and (create_date or geo_data):
-                        apply_all_metadata(file_path, create_date, modify_date, geo_data)
+                    # Write EXIF metadata BEFORE moving if we have date or geo data
+                    # This includes dates from JSON, filename, or existing EXIF
+                    if dest.create_date or dest.geo_data:
+                        apply_all_metadata(file_path, dest.create_date, dest.modify_date, dest.geo_data)
 
                     # Move media file
-                    success, moved_file = move_file_safely(file_path, dest_dir, create_date, modify_date)
+                    success, moved_file = move_file_safely(file_path, dest_dir, dest.create_date, dest.modify_date, file_index)
                     if success:
                         stats['moved'] += 1
                         media_type = "video" if is_video else "photo"
-                        if reason:
-                            print(f"  Moved {media_type}: {source_folder}/{original_filename} -> {year}/{MONTH_NAMES[month-1]} ({reason})")
+                        if dest.reason:
+                            print(f"  Moved {media_type}: {source_folder}/{original_filename} -> {dest.year}/{MONTH_NAMES[dest.month-1]} ({dest.reason})")
                         else:
-                            print(f"  Moved {media_type}: {source_folder}/{original_filename} -> {year}/{MONTH_NAMES[month-1]}")
+                            print(f"  Moved {media_type}: {source_folder}/{original_filename} -> {dest.year}/{MONTH_NAMES[dest.month-1]}")
 
-                        # Always delete JSON after processing (EXIF already written)
-                        if metadata_path and metadata_path.exists():
-                            metadata_path.unlink()
+                        # Always delete JSON after successful move (metadata already applied to EXIF if available)
+                        if dest.metadata_path and dest.metadata_path.exists():
+                            dest.metadata_path.unlink()
                     elif success is False and moved_file is None:
                         # File already exists from another person's import - skip it
                         stats['skipped_existing'] += 1
                         print(f"  Skipped (exists): {source_folder}/{original_filename}")
                         # Also delete the metadata file if it exists
-                        if metadata_path and metadata_path.exists():
-                            metadata_path.unlink()
+                        if dest.metadata_path and dest.metadata_path.exists():
+                            dest.metadata_path.unlink()
                     else:
                         stats['failed'] += 1
                 else:
@@ -910,7 +1333,7 @@ def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
         description='Organize Google Takeout photos and videos by date',
-        epilog='Example: python3 organize_photos.py --person "John Doe"'
+        epilog='Example: python3 organize_media.py --person "John Doe"'
     )
     parser.add_argument(
         '--person',
@@ -986,19 +1409,28 @@ def main():
     print("PASS 2: Processing Regular Files")
     print("=" * 80)
 
+    # Build file index for fast duplicate detection (only if not processing review dir)
+    file_index = None
+    if not is_review_dir:
+        file_index = build_file_index(OUTPUT_DIR, VIDEO_OUTPUT_DIR, PERSON_NAME)
+
     if is_review_dir:
         # Process _TO_REVIEW_ directly
-        stats = process_regular_files(BASE_DIR)
+        stats = process_regular_files(BASE_DIR, file_index)
         if stats:
             for key, value in stats.items():
                 total_stats[key] += value
     else:
         # Process all Takeout directories found
         for takeout_path, _ in takeout_dirs:
-            stats = process_regular_files(takeout_path)
+            stats = process_regular_files(takeout_path, file_index)
             if stats:
                 for key, value in stats.items():
                     total_stats[key] += value
+
+            # Rebuild index after each Takeout to keep it fresh for the next one
+            if file_index is not None:
+                file_index = build_file_index(OUTPUT_DIR, VIDEO_OUTPUT_DIR, PERSON_NAME)
 
     # Clean up empty directories (skip for _TO_REVIEW_)
     if not is_review_dir:

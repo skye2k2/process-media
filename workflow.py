@@ -48,7 +48,9 @@ def main():
     print("\nThis script will:")
     print("  1. Fix truncated file extensions (e.g., .MP -> .mp4)")
     print("  2. Organize photos/videos by date (deleting duplicates from project folders)")
-    print("  3. Merge JSON metadata into EXIF data")
+    print("  3. Reunite fractured project directories (move media to project folders)")
+    print("  4. Clean up orphaned JSON metadata files")
+    print("  5. Merge remaining JSON metadata into EXIF data (review files only)")
     print("\n" + "=" * 80 + "\n")
 
     # Prompt for person name
@@ -111,7 +113,7 @@ def main():
         organize_args.extend(["--person", person_name])
 
     success, organize_time = run_script(
-        str(script_dir / "organize_photos.py"),
+        str(script_dir / "organize_media.py"),
         organize_args,
         f"Organizing photos{' for ' + person_name if person_name else ''}"
     )
@@ -119,15 +121,49 @@ def main():
         print("\n❌ Failed to organize photos")
         return 1
 
-    # Step 3: Merge metadata for _TO_REVIEW_ only
+    # Step 3: Reunite fractured project directories
+    print("\n" + "=" * 80)
+    print("PHASE 3: POST-PROCESSING")
+    print("=" * 80)
+
+    success, reunite_time = run_script(
+        str(script_dir / "fix_fragmented_metadata.py"),
+        [],
+        "Reuniting fractured project directories"
+    )
+    if not success:
+        print("\n⚠️  Warning: Failed to reunite project files")
+        # Don't fail the whole workflow for this
+        reunite_time = 0
+
+    # Step 4: Clean up orphaned JSON files
+    # Run cleanup script with --yes flag for automatic confirmation
+    print("\n" + "=" * 80)
+    print("Cleaning up orphaned JSON metadata files")
+    print("=" * 80 + "\n")
+
+    cleanup_start = time.time()
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script_dir / "cleanup_orphaned_json.py"), "--yes"],
+            check=False
+        )
+        cleanup_time = time.time() - cleanup_start
+        if result.returncode != 0:
+            print("\n⚠️  Warning: Orphaned JSON cleanup encountered issues")
+    except Exception as e:
+        cleanup_time = time.time() - cleanup_start
+        print(f"\n⚠️  Warning: Error during cleanup: {e}")
+
+    # Step 5: Merge metadata for _TO_REVIEW_ only
     # (Regular files have EXIF written during organization, only review files need merging)
     print("\n" + "=" * 80)
-    print("PHASE 3: METADATA (review files only)")
+    print("PHASE 4: METADATA (review files only)")
     print("=" * 80)
 
     review_dir = script_dir / "Organized_Photos" / "_TO_REVIEW_"
     merge_time = 0
-    
+
     if review_dir.exists() and any(review_dir.iterdir()):
         success, merge_time = run_script(
             str(script_dir / "merge_metadata.py"),
@@ -172,6 +208,8 @@ def main():
     print("\nProcessing times:")
     print(f"  - Fix extensions: {format_time(fix_time)}")
     print(f"  - Organize files: {format_time(organize_time)}")
+    print(f"  - Reunite projects: {format_time(reunite_time)}")
+    print(f"  - Cleanup orphaned JSON: {format_time(cleanup_time)}")
     print(f"  - Merge metadata: {format_time(merge_time)}")
     print(f"  - Total time: {format_time(elapsed_time)}")
     print("\n" + "=" * 80 + "\n")
