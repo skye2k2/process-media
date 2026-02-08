@@ -166,7 +166,7 @@ def scan_and_fix(directory, dry_run=False, check_all=False):
 def main():
     parser = argparse.ArgumentParser(
         description='Fix truncated file extensions in Google Takeout exports',
-        epilog='Example: python3 fix_truncated_extensions.py TAKEOUT_DATA/'
+        epilog='Example: python3 fix_truncated_extensions.py TO_PROCESS/'
     )
     parser.add_argument(
         'directory',

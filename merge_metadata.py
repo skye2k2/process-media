@@ -381,7 +381,7 @@ def process_directory(directory, remove_json=False, preserve_existing=False, rec
 def main():
     parser = argparse.ArgumentParser(
         description='Merge Google Takeout JSON metadata into media file EXIF data',
-        epilog='Example: python3 merge_metadata.py TAKEOUT_DATA/ --recursive'
+        epilog='Example: python3 merge_metadata.py TO_PROCESS/ --recursive'
     )
     parser.add_argument(
         'directory',

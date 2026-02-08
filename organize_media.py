@@ -1343,13 +1343,23 @@ def main():
     parser.add_argument(
         '--input-dir',
         type=str,
-        default='TAKEOUT_DATA',
-        help='Input directory to process (default: TAKEOUT_DATA)'
+        default='TO_PROCESS',
+        help='Input directory to process (default: TO_PROCESS)'
     )
     args = parser.parse_args()
 
     PERSON_NAME = args.person
     BASE_DIR = SCRIPT_DIR / args.input_dir
+
+    # Validate input directory exists
+    if not BASE_DIR.exists():
+        print(f"\n❌ ERROR: Input directory does not exist: {BASE_DIR}")
+        print(f"   Please create the directory or specify a valid --input-dir")
+        sys.exit(1)
+
+    if not BASE_DIR.is_dir():
+        print(f"\n❌ ERROR: Input path is not a directory: {BASE_DIR}")
+        sys.exit(1)
 
     print("\n" + "=" * 80)
     print("Google Takeout Photo Organization Script")

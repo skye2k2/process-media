@@ -33,7 +33,13 @@ VIDEO_EXTENSIONS = {
     '.MP4', '.MOV'
 }
 
+# AVCHD camcorder formats (typically from Sony/Panasonic camcorders)
+# These use MPEG-4 AVC/H.264 in MPEG-2 transport stream containers
+AVCHD_EXTENSIONS = {'.mts', '.m2ts', '.MTS', '.M2TS'}
+
+# Combined sets for different use cases
 MEDIA_EXTENSIONS = PHOTO_EXTENSIONS | VIDEO_EXTENSIONS
+ALL_VIDEO_EXTENSIONS = VIDEO_EXTENSIONS | AVCHD_EXTENSIONS
 
 # Month names for directory creation (1-indexed, so index 0 is skipped)
 MONTH_NAMES = [

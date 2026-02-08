@@ -1,0 +1,31 @@
+Extra credit. Data reprocessing logs.
+
+
+## Legacy codec conversion of various AVI files from Mom and Carina:
+
+======================================================================
+Summary
+======================================================================
+
+  Legacy videos found:  12
+  Successfully converted: 12
+  Skipped (exists):     0
+  Failed:               0
+  Space saved:          1.42 GB
+
+Completed in 8m 54s
+
+
+## Poor compression reprocessing of .mov videos we made:
+
+======================================================================
+Summary
+======================================================================
+
+  Legacy videos found:  10
+  Successfully converted: 10
+  Skipped (exists):     0
+  Failed:               0
+  Space saved:          1.79 GB
+
+Completed in 18m 28s

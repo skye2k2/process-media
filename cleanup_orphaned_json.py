@@ -166,6 +166,10 @@ def main(auto_yes=False):
             if json_path.name == 'metadata.json':
                 continue
 
+            # Skip analysis cache files (used by photo_triage.py)
+            if json_path.name == '.analysis_cache.json':
+                continue
+
             # First check if media exists locally
             local_media = find_media_file_locally(json_path)
             if local_media:

@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
-Google Takeout Master Processing Script
+Google Takeout Processing Workflow
+
 Orchestrates the complete workflow for processing Google Takeout photo exports.
 
 Workflow:
 1. Fix truncated file extensions (.MP -> .mp4)
 2. Organize photos/videos by date with person tagging (reads JSON metadata, deletes duplicates)
 3. Merge remaining JSON metadata into EXIF data (removes JSON files after)
+
+Usage:
+    python3 workflow_takeout.py
 """
 
 import subprocess
@@ -73,7 +77,7 @@ def main():
 
     success, fix_time = run_script(
         str(script_dir / "fix_truncated_extensions.py"),
-        ["TAKEOUT_DATA/"],
+        ["TO_PROCESS/"],
         "Fixing truncated file extensions"
     )
     if not success:
@@ -85,11 +89,11 @@ def main():
     print("PHASE 2: ORGANIZATION")
     print("=" * 80)
 
-    # Check if TAKEOUT_DATA has any files to process
-    takeout_data_dir = script_dir / "TAKEOUT_DATA"
+    # Check if TO_PROCESS has any files to process
+    to_process_dir = script_dir / "TO_PROCESS"
     has_files = False
-    if takeout_data_dir.exists():
-        for root, dirs, files in takeout_data_dir.walk():
+    if to_process_dir.exists():
+        for root, dirs, files in to_process_dir.walk():
             if any(Path(root, f).suffix.lower() in {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.heic', '.heif', '.mp4', '.mov', '.avi', '.mkv', '.m4v', '.3gp', '.wmv'} for f in files):
                 has_files = True
                 break
@@ -98,15 +102,15 @@ def main():
     if not has_files:
         review_dir = script_dir / "Organized_Photos" / "_TO_REVIEW_"
         if review_dir.exists() and any(review_dir.iterdir()):
-            print(f"\nNo files found in TAKEOUT_DATA/")
+            print(f"\nNo files found in TO_PROCESS/")
             print(f"Processing files from _TO_REVIEW_ instead...")
             input_dir = "Organized_Photos/_TO_REVIEW_"
         else:
-            print(f"\nNo files found in TAKEOUT_DATA/ or _TO_REVIEW_/")
+            print(f"\nNo files found in TO_PROCESS/ or _TO_REVIEW_/")
             print(f"Nothing to process.")
             return 0
     else:
-        input_dir = "TAKEOUT_DATA"
+        input_dir = "TO_PROCESS"
 
     organize_args = ["--input-dir", input_dir]
     if person_name:

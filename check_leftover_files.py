@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Verify that remaining files in TAKEOUT_DATA are duplicates of organized files.
+Verify that remaining files in TO_PROCESS are duplicates of organized files.
 Checks by filename and optionally by file size to confirm they're truly duplicates.
 """
 
@@ -10,7 +10,7 @@ from pathlib import Path
 from media_utils import MEDIA_EXTENSIONS
 
 SCRIPT_DIR = Path(__file__).parent
-TAKEOUT_DIR = SCRIPT_DIR / "TAKEOUT_DATA"
+TO_PROCESS_DIR = SCRIPT_DIR / "TO_PROCESS"
 ORGANIZED_PHOTOS = SCRIPT_DIR / "Organized_Photos"
 ORGANIZED_VIDEOS = SCRIPT_DIR / "Organized_Videos"
 
@@ -39,7 +39,7 @@ def build_organized_index():
 
 
 def main():
-    print("Verifying remaining files in TAKEOUT_DATA...")
+    print("Verifying remaining files in TO_PROCESS...")
     print("=" * 80)
 
     # Build index of organized files first (much faster than repeated rglob)
@@ -48,9 +48,9 @@ def main():
     # Find all remaining media files
     remaining_files = []
     for ext in MEDIA_EXTENSIONS:
-        remaining_files.extend(TAKEOUT_DIR.rglob(f"*{ext}"))
+        remaining_files.extend(TO_PROCESS_DIR.rglob(f"*{ext}"))
 
-    print(f"Found {len(remaining_files)} remaining media files in TAKEOUT_DATA\n")
+    print(f"Found {len(remaining_files)} remaining media files in TO_PROCESS\n")
 
     if not remaining_files:
         print("✅ No files remaining - all processed successfully!")
@@ -139,14 +139,14 @@ def main():
 
     if len(duplicates) == len(remaining_files):
         print("\n✅ ALL remaining files are confirmed duplicates!")
-        print("   It is safe to delete everything in TAKEOUT_DATA/")
+        print("   It is safe to delete everything in TO_PROCESS/")
     elif not_found:
         print(f"\n⚠️  WARNING: {len(not_found)} files were not processed!")
-        print("   DO NOT delete TAKEOUT_DATA until these are investigated.")
+        print("   DO NOT delete TO_PROCESS until these are investigated.")
         print("   These files may have been skipped due to errors.")
     elif name_match_size_diff:
         print(f"\n⚠️  CAUTION: {len(name_match_size_diff)} files have different sizes than organized versions.")
-        print("   Review these before deleting TAKEOUT_DATA.")
+        print("   Review these before deleting TO_PROCESS.")
     else:
         print("\n✅ Most files are duplicates, but review any warnings above.")
 
