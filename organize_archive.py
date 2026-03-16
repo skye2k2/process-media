@@ -19,6 +19,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -116,7 +117,11 @@ def get_date_from_exif(file_path):
                 continue
 
             try:
-                return datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
+                parsed = datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
+
+                # Reject epoch and other pre-digital bogus defaults (mirrors organize_media.py)
+                if parsed.year > 1980:
+                    return parsed
             except ValueError:
                 continue
 
@@ -126,17 +131,101 @@ def get_date_from_exif(file_path):
         return None
 
 
-def get_creation_date(file_path):
+def batch_extract_dates(file_paths, chunk_size=1000):
+    """
+    Extract creation dates from a list of files in batched exiftool invocations.
+
+    Dramatically faster than the per-file get_date_from_exif() for files that
+    lack embedded filename dates (e.g., DSC_XXXX.JPG from DSLRs). A single
+    exiftool process reading 500 files is orders of magnitude cheaper than 500
+    individual process spawns.
+
+    Files are chunked to avoid OS argument-list length limits. Progress is
+    logged when the total exceeds one chunk.
+
+    Args:
+        file_paths: Iterable of Path objects to query
+        chunk_size: Max files per exiftool invocation (default 1000)
+
+    Returns:
+        dict: {Path: datetime} for files where a valid date was found.
+              Files with no parseable date are absent from the result.
+    """
+    date_cache = {}
+    file_list = list(file_paths)
+
+    if not file_list:
+        return date_cache
+
+    total = len(file_list)
+    processed = 0
+
+    for chunk_start in range(0, total, chunk_size):
+        chunk = file_list[chunk_start : chunk_start + chunk_size]
+
+        try:
+            result = subprocess.run(
+                [
+                    'exiftool', '-json',
+                    '-DateTimeOriginal',
+                    '-CreateDate',
+                    '-MediaCreateDate',
+                ] + [str(p) for p in chunk],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+
+            if result.returncode != 0 or not result.stdout.strip():
+                processed += len(chunk)
+                continue
+
+            records = json.loads(result.stdout)
+
+            for record in records:
+                source_file = Path(record.get('SourceFile', ''))
+
+                # Try each date field in priority order; use first valid result
+                for field in ('DateTimeOriginal', 'CreateDate', 'MediaCreateDate'):
+                    date_str = record.get(field, '')
+
+                    if not date_str:
+                        continue
+
+                    try:
+                        parsed = datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
+
+                        # Reject epoch and other pre-digital bogus defaults
+                        if parsed.year > 1980:
+                            date_cache[source_file] = parsed
+                            break
+                    except ValueError:
+                        continue
+
+        except (json.JSONDecodeError, Exception) as err:
+            print(f"  WARNING: Batch EXIF extraction failed for chunk starting at {chunk_start}: {err}")
+
+        processed += len(chunk)
+
+        if total > chunk_size:
+            print(f"  EXIF batch progress: {processed}/{total} files...")
+
+    return date_cache
+
+
+def get_creation_date(file_path, exif_cache=None):
     """
     Get creation date from file, trying multiple methods.
 
     Priority:
     1. Filename patterns (fastest, most common for phone videos)
-    2. EXIF metadata
-    3. File modification time (last resort)
+    2. Batch EXIF cache (pre-fetched by batch_extract_dates, if provided)
+    3. Single-file exiftool fallback (for files not covered by the batch)
+    4. File modification time (last resort)
 
     Args:
         file_path: Path to the media file
+        exif_cache: Optional {Path: datetime} dict from batch_extract_dates
 
     Returns:
         tuple: (datetime, source_string)
@@ -147,7 +236,11 @@ def get_creation_date(file_path):
     if date:
         return date, "filename"
 
-    # Try EXIF
+    # Check the pre-fetched batch cache before spawning a subprocess
+    if exif_cache is not None and file_path in exif_cache:
+        return exif_cache[file_path], "exif"
+
+    # Single-file fallback for anything not covered by the batch cache
     date = get_date_from_exif(file_path)
 
     if date:
@@ -240,6 +333,35 @@ def is_video_file(file_path):
     return file_path.suffix.lower() in {e.lower() for e in VIDEO_EXTENSIONS}
 
 
+def stamp_filesystem_dates(file_path, creation_date):
+    """
+    Sync filesystem create/modify timestamps to match the known creation date.
+
+    Without this step, `shutil.move()` preserves whatever filesystem birthtime
+    the source file had (often the Unix epoch for camcorder files copied off a
+    memory card), resulting in a mismatched 1969-12-31 date in Finder despite
+    correct EXIF data inside the file.
+
+    Args:
+        file_path: Path to the already-moved destination file
+        creation_date: datetime to stamp onto the file
+    """
+    date_str = creation_date.strftime('%Y:%m:%d %H:%M:%S')
+    try:
+        subprocess.run(
+            [
+                'exiftool', '-overwrite_original', '-q',
+                f'-FileCreateDate={date_str}',
+                f'-FileModifyDate={date_str}',
+                str(file_path),
+            ],
+            check=False,
+            capture_output=True,
+        )
+    except Exception as e:
+        print(f"    WARNING: Could not stamp filesystem dates on {file_path.name}: {e}")
+
+
 def move_file(file_path, dest_folder, dry_run=False):
     """
     Move file to destination folder.
@@ -256,7 +378,9 @@ def move_file(file_path, dest_folder, dry_run=False):
     dest_path = dest_folder / filename
 
     if dry_run:
-        print(f"    [DRY RUN] Would move to: {dest_path}")
+        # Show year/month/filename only -- full output root is noted in the summary
+        short_path = f"{dest_folder.parent.name}/{dest_folder.name}/{filename}"
+        print(f"    [DRY RUN] -> {short_path}")
         return dest_path
 
     try:
@@ -309,6 +433,12 @@ def is_project_folder(folder_path, input_dir):
 
     # Skip if it's just a year folder
     if re.match(r'^\d{4}$', folder_name):
+        return False
+
+    # Skip standard DCIM subdirectory names (e.g., 100D3000, 101CANON, 100NIKON).
+    # These are camera-generated storage buckets, not meaningful project folders --
+    # their contents should be scattered individually by EXIF date, not moved as a unit.
+    if re.match(r'^\d{3}[A-Z0-9]+$', folder_name):
         return False
 
     # Check if it contains media files
@@ -430,7 +560,7 @@ def move_project_folder(folder_path, file_index, dry_run=False):
 # MAIN PROCESSING
 # ============================================================================
 
-def process_file(file_path, detector, dry_run=False):
+def process_file(file_path, detector, dry_run=False, exif_cache=None):
     """
     Process a single media file using smart duplicate detection.
 
@@ -444,6 +574,8 @@ def process_file(file_path, detector, dry_run=False):
         file_path: Path to the media file
         detector: DuplicateDetector instance
         dry_run: If True, don't make changes
+        exif_cache: Optional {Path: datetime} dict from batch_extract_dates,
+                    avoiding per-file subprocess calls for EXIF-dated files
 
     Returns:
         tuple: (result_code, action_taken)
@@ -453,7 +585,7 @@ def process_file(file_path, detector, dry_run=False):
     print(f"\n  Processing: {file_path.name}")
 
     # Get creation date (required for organizing into year/month folders)
-    creation_date, date_source = get_creation_date(file_path)
+    creation_date, date_source = get_creation_date(file_path, exif_cache=exif_cache)
 
     if not creation_date:
         print(f"    WARNING: Could not determine date, skipping")
@@ -506,6 +638,7 @@ def process_file(file_path, detector, dry_run=False):
                     # Move source to destination, preserving the existing filename
                     dest_path = dest_folder / existing_name
                     shutil.move(str(file_path), str(dest_path))
+                    stamp_filesystem_dates(dest_path, creation_date)
                     print(f"    Replaced with: {dest_path.name}")
                     return 'replaced', 'source is better quality/size'
 
@@ -521,7 +654,9 @@ def process_file(file_path, detector, dry_run=False):
     result = move_file(file_path, dest_folder, dry_run)
 
     if result:
-        print(f"    Moved to: {dest_folder.name}/")
+        if not dry_run:
+            stamp_filesystem_dates(result, creation_date)
+            print(f"    Moved to: {dest_folder.parent.name}/{dest_folder.name}/")
         return 'moved', 'new file'
     else:
         return 'failed', 'move failed'
@@ -634,6 +769,19 @@ Examples:
     print(f"\nFound {len(project_folders)} project folders")
     print(f"Found {len(loose_files)} loose media files")
 
+    # Pre-fetch EXIF dates for all loose files that lack a parseable filename
+    # date, collapsing N per-file subprocess calls into one batched invocation.
+    # Files with filename dates skip this entirely and are not included.
+    files_needing_exif = [f for f in loose_files if not extract_date_from_filename(f.name)]
+    exif_cache = {}
+
+    if files_needing_exif:
+        print(f"\n  Pre-fetching EXIF dates for {len(files_needing_exif)} files (no filename date)...")
+        exif_cache = batch_extract_dates(files_needing_exif)
+        hit_count = len(exif_cache)
+        miss_count = len(files_needing_exif) - hit_count
+        print(f"  EXIF batch complete: {hit_count} dates found, {miss_count} will fall back to mtime")
+
     # Process project folders first
     project_moved = 0
     project_skipped = 0
@@ -664,7 +812,7 @@ Examples:
         print("Processing loose files...")
 
         for file_path in sorted(loose_files, key=lambda p: p.name):
-            result, action = process_file(file_path, detector, args.dry_run)
+            result, action = process_file(file_path, detector, args.dry_run, exif_cache=exif_cache)
 
             if result == 'moved':
                 moved_count += 1
@@ -690,6 +838,8 @@ Examples:
 
     if args.dry_run and total_moved > 0:
         print(f"\n  Run without --dry-run to process {total_moved} files")
+        print(f"  Photos -> {PHOTO_OUTPUT_DIR}")
+        print(f"  Videos -> {VIDEO_OUTPUT_DIR}")
 
     # Save the duration cache for faster future runs
     detector.save_duration_cache()

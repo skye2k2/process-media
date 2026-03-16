@@ -6,7 +6,7 @@ Tracks which videos have been converted to prevent re-processing the same
 content from multiple backup sources. Uses (creation_date, file_size) as the
 unique key since camcorder filenames are useless (00000.MTS, 00001.MTS, etc.).
 
-Index file location: Organized_Videos/conversion_index.json
+Index file location: Organized_Videos/.conversion_index.json
 
 Used by:
 - camcorder_convert.py: Check before conversion, add after successful conversion
@@ -20,7 +20,7 @@ from pathlib import Path
 INDEX_VERSION = 1
 
 # Default index location
-DEFAULT_INDEX_PATH = Path(__file__).parent / "Organized_Videos" / "conversion_index.json"
+DEFAULT_INDEX_PATH = Path(__file__).parent / "Organized_Videos" / ".conversion_index.json"
 
 
 def generate_index_key(creation_date, file_size):
@@ -48,7 +48,7 @@ def load_index(index_path=None):
     Creates an empty index structure if the file doesn't exist.
 
     Args:
-        index_path: Path to index file (default: Organized_Videos/conversion_index.json)
+        index_path: Path to index file (default: Organized_Videos/.conversion_index.json)
 
     Returns:
         dict: Index data structure with 'version' and 'entries' keys
@@ -95,7 +95,7 @@ def save_index(index_data, index_path=None):
 
     Args:
         index_data: Index data structure to save
-        index_path: Path to index file (default: Organized_Videos/conversion_index.json)
+        index_path: Path to index file (default: Organized_Videos/.conversion_index.json)
 
     Returns:
         bool: True if successful, False otherwise

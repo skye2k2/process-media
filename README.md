@@ -9,13 +9,9 @@ Media organization and conversion tools for consolidating family photos and vide
 
 All workflows use a unified `TO_PROCESS/` input directory and shared `Organized_Photos/` and `Organized_Videos/` output directories.
 
----
-
-## Google Takeout Sorter Script
-
 <!--
 
-The code in organize_media.py was entirely written by Claude Sonnet 4.5, and took a few combined prompts to accomplish:
+The code in organize_media.py was initially written by Claude Sonnet 4.5, and took a few combined prompts to get started:
 
 i have run a google takeout task which has exported my family's personal photos for local storage. however, the files are split across five archive folders which organize photos only by year, and include supplemental-metadata files containing the very important creationTime, photoTakenTime, and geoData objects.
 
@@ -23,9 +19,22 @@ i would ike to combine all of the separate repeated directories into one, with d
 
 also, there are some photos that were created by myself manually and added that should have probably used the creationTime object, instead of the photoTakenTime object, as in the current first ride file. incorporate a comparison between these two dates, and if they would assign media to different locations, move the file and its corresponding metadata into a _TO_REVIEW_ directory.
 
-(and then about 80 follow-on prompts and fixes, because I was not clear enough, as well as the AI making some odd assumptions at times)
+(and then about 80 follow-on prompts and fixes for this initial processing, because I was not clear enough, as well as the AI being forgetful or making some odd assumptions at times)
+
+Additional key features were added incrementally to provide:
+
+- multithreaded processing, and both regular and helpful logging of progress and results
+- naming, metadata management, deduplication, re-encoding, and sorting of camcorder video files
+- metadata management, deduplication, and sorting of DSLR photos
+- automatic event subfolder categorization (birthdays, holidays, highly-photographed days)
+- photo analysis tools for identifying blur, duplication, and over-captured events, via an HTML review page, which generate scripts for deletion
+- specialization of scripts for better adherence to engineering principles, better separation of concerns, and reusability
 
 -->
+
+---
+
+## Google Takeout Sorter Script
 
 ### Quick Start (Recommended):
 
@@ -153,6 +162,7 @@ The `organize_media.py` script consolidates photos from multiple Google Takeout 
 
 **Phase 1: Project Folder Processing**
 - Identifies special project folders (e.g., "Dad's 2006 F-150 XLT", "Family History") that should remain intact as collections
+- **Project folder detection rule**: any named folder that is not a standard `Photos from YYYY` or `Untitled…` folder — *except* folders whose name contains a comma. Google Takeout creates per-share directories named after the people a photo was shared with (e.g., "Nicole, Shannon, Simon", "Clif, jacen.the.first@gmail.com"). These are not curated collections; their contents are per-person copies of shared photos and are sorted normally as individual files.
 - **Merges JSON metadata into EXIF for all files within the project folder** (using merge_metadata.py --recursive --remove-json)
 - Extracts year from folder name or folder contents
 - Determines the most common month from photos within the folder for prefix assignment
@@ -234,6 +244,7 @@ process-media/
 ├── check_nas_archive.py            (Archive: verify NAS files exist in organized)
 ├── cleanup_orphaned_json.py        (Takeout: remove orphaned JSON)
 ├── conversion_index.py             (Video: persistent deduplication)
+├── create_event_folders.py         (Reprocess: sort holiday/birthday photos into event folders)
 ├── photo_triage.py                 (Triage: batch blurry/duplicate management)
 ├── convert_legacy.py               (Reprocess: legacy format conversion logic)
 ├── duplicate_detector.py           (Archive: smart duplicate detection with caching)
@@ -258,10 +269,12 @@ process-media/
 ├── Organized_Photos/               (Output: photos by year/month)
 │   ├── 2025/
 │   │   ├── 01 January/
+│   │   │   ├── 2025 J Birthday - 15/   (named event sub-folder)
+│   │   │   └── 01-18 Event/            (dense-day auto-detected event)
 │   │   └── 12 Dad's Projects/
 │   └── _TO_REVIEW_/
 └── Organized_Videos/               (Output: videos by year/month)
-    ├── conversion_index.json       (Tracks all conversions for dedup)
+    ├── .conversion_index.json       (Tracks all conversions for dedup)
     └── 2024/
         └── 05 May/
             └── 20240504_113916_CAM.h265.mp4
@@ -396,7 +409,7 @@ Converts older video codecs (H.264, MPEG-2, AVCHD) to H.265/HEVC for archival st
 
 ### Persistent Deduplication:
 
-The script maintains a `conversion_index.json` file in `Organized_Videos/` to track all converted content across multiple runs. This is particularly useful when:
+The script maintains a `.conversion_index.json` file in `Organized_Videos/` to track all converted content across multiple runs. This is particularly useful when:
 
 - **Same camcorder files exist on multiple backup drives** (duplicates with identical content but from different sources)
 - **Processing is interrupted** and resumed later
@@ -487,6 +500,25 @@ This presents an interactive menu with available actions:
    - These dual-stream files don't play in macOS QuickLook/Preview
    - Options: extract stills, delete videos, or strip embedded still to fix QuickLook
    - Can also be run directly: `python3 motion_photo_extract.py --scan`
+
+5. **Create Event Folders**
+   - Groups holiday and birthday photos from month folders into named event sub-folders, created *inside* the month folder (e.g., `02 February/2024 J Birthday - 14/`)
+   - Named holiday/birthday events (run first):
+     - **Births**: birth year only, ±1 day window — folder: `{YEAR} {INITIAL} Birth` (e.g., `2010 J Birth`)
+     - **Birthdays**: all years after birth year, ±5 day window — folder: `{YEAR} {INITIAL} Birthday - {AGE}` (e.g., `2024 J Birthday - 14`)
+     - **Fourth of July**: July 4 only
+     - **Halloween**: October 31 only
+     - **Thanksgiving**: Tuesday–Friday of the week containing the 4th Thursday of November
+     - **Christmas**: December 24–25
+   - Automatic dense-day event detection (run after holidays, so no overlap):
+     - Any day with ≥35 photos qualifies; consecutive qualifying days merge into one span
+     - Folder name: `MM-DD Event` or `MM-DD–MM-DD Event` (no year prefix — already implicit in the containing year directory)
+     - Threshold is tunable: `--event-threshold N` (0 disables cluster detection entirely)
+   - Only considers direct children of `MM MonthName` folders — photos already in any sub-folder are never touched
+   - Any `.supplemental-metadata[...].json` sidecar files are co-moved with their photo
+   - Analysis cache entries (blur, hashes, EXIF date) travel with moved files — no re-analysis needed afterward
+   - Dry-run by default; use `--execute` to move files
+   - Can also be run directly: `python3 create_event_folders.py [--year YYYY] [--execute] [--verbose] [--event-threshold N]`
 
 ### Why Reprocessing?
 
@@ -781,17 +813,42 @@ python3 photo_triage.py auto-triage --symlink
 find Organized_Photos/_TO_REVIEW_ -type l ! -exec test -e {} \; -delete
 ```
 
+<!--
+
 ## NEXT:
 
 ### NEXT THOUGHTS, IDEAS, CONSIDERATIONS, AND PROMPTS:
 
-we need to add the ability to handle the NIKON DSCN-prefixed photos, many of which we have subsequently renamed and moved into various project folders, or actually ended up in TO_REVIEW, and then copy over and process the NIKON SD card (and determine if any of those are missing, as well)
 
-TODO: figure out where the missing home movies are (2013-2016, 2017-2019). check archives before re-syncing with our newest data
+we need to add the ability to handle the NIKON DSCN-prefixed photos, some of which we have subsequently renamed and moved into various project folders, or ended up in TO_REVIEW, and then copy over and process the NIKON SD card (and determine if any of those are missing, as well)
 
-TODO: find our old dvd we made of our first year of marriage and college together, which should have our photos, as well, especially the ones from our first and second little nikon pocket cameras
+TODO: identical duplicates are still not being called out as such. it would be good to figure out why
 
-TODO: add our wedding photo dvd in its entirety
+TODO: the duplicate resolver should also take resolution into account, because often nicole gets photos thrown at her through text, and then gets the originals, and the smaller photos consistently calculate out to a higher blur score. we want to keep the one with the higher resolution for perceptually similar photos. commonly it is a larger filesize, but if two photos have a very high ssim, the same resolution, and different filesizes, the smaller should probably win
+
+TODO: the duplicate resolver prioritizes "newer" copies or edits. many times, this appears be a rounding difference, as the timestamps differ by a single microsecond. and, when shared with someone, that folder sharing date is always *after* the photo time, so the shared photo in an odd folder is what it preselected for keeping, which is less than ideal.
+
+it would probably be better to just run a check across all takeout shared directories to see if all photos exist in their proper places, and then just remove it, because this caused a bunch of drama
+
+TODO:
+
+- find our missing home movies are (2013-2016, 2017-2019). check archives BEFORE re-syncing with our newest data
+- find our old dvd we made of our first year of marriage and college together, which should have our photos, as well, especially the ones from our first and second little nikon pocket cameras
+- find and add our wedding photo dvd in its entirety as an event
+
+DON'T FREAKING FORGET TO FIGURE OUT HOW TO SYNC OUR OLD, HIGH-QUALITY GOOGLE PHOTO EXPORT WITH THIS STUFF AND SEE IF THERE'S A DIFFERENCE.
+
+
+i think i would like to add a test directory containing each typical and problem file we are handling, to be able to exercise the code fully in a closed system of tests that cover each base and edge case rather than spend half an hour re-running each time
+
+THEN DO THE SAME KIND OF PROCESSING ACROSS OUR OLD PHOTOSYNCED DATA, AND SEE IF WE HAVE EVERYTHING
+
+THEN DO THE SAME THING FOR OUR LIFE DVD FROM OUR FIRST YEAR, OR SO, AND OUR WEDDING DVD, AND NICOLE'S LOCAL HARD DRIVE, AND OUR VIDEO RECORDING CHIPS, RENAMING INTELLIGENTLY WITH DATESTAMPS, INSTEAD OF ARBITRARY NUMBERS,
+
+THEN ADD TAGS FOR PEOPLE AND EVENTS?
+
+
+WE ALSO NEED TO FIGURE OUT HOW BEST TO RESOLVE THE HUNDREDS OF -EDITED FILES, MANY OF WHICH DON'T ACTUALLY MAKE A DRAMATIC ENOUGH IMPROVEMENT TO MERIT THE SPACE, INSTEAD OF KEEPING THE ORIGINAL, AND IF WE WANT TO DO SOMETHING WITH IT, EDITING WITH A MODERN PHOTO EDITOR FOR BETTER RESULTS.
 
 POTENTIAL ISSUE: how do we handle reprocessing? if we went through and allowed most of the high-confidence and duplicate deletions, and only made it partway through the one left over for painstaking manual review, how do we avoid dealing with ones we explicitly marked as keep all over again the next runthrough? are we adding the KEEP designation to the cache? are there other potential issues?
 
@@ -800,4 +857,8 @@ POTENTIAL FOR QUALITY CONFLICTS: oh, and there is also the possibility of duplic
 ^^^ SEE THE ORIGINAL PHOTOSYNC FILES, AND IF THEY REALLY ARE HIGHER-RESOLUTION, OR IF ANY FROM ANYWHEN ACTUALLY MATCH THAT, BEFORE BUILDING IN MORE COMPLEXITY
 
 
-what is the best way to re-sync with google photos? or do we just delete everything nonessential, and call it good?
+what is the best way to re-sync with google photos? or do we just delete everything nonessential, and call it good? or can we keep track of the removed files and build a tool to interact with google photos to remove them in the cloud, as well?
+
+and then we need all of this to work with pre-existing data, so that we don't have to transfer hundreds of gigabytes of nas data to a local directory to be able to sort, deduplicate, compare, and the like, going forward. for the future, we want a very smooth process of 1) add the files to the processing folder, and 2) run the import (and analyze) script. i never want to do a full takeout, again (because we have gone through and removed hundreds and thousands of blurry, unnecessary, or duplicate photos), just grab the last couple of months, and boom. ensure that the removal scripts will work correctly with nas-based links. smash together the cache removal, recache, and re-browse functionality.
+
+-->

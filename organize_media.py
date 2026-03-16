@@ -54,6 +54,12 @@ STANDARD_FOLDER_PATTERN = re.compile(r'^Photos from \d{4}$')
 # Untitled folders should be processed normally too
 UNTITLED_PATTERN = re.compile(r'^Untitled.*')
 
+# Google Takeout creates per-share directories named after the people a photo
+# was shared with, e.g. "Nicole, Shannon, Simon" or
+# "Clif, jacen.the.first@gmail.com". The comma is a reliable distinguisher:
+# no real project folder name should contain one.
+SHARED_WITH_PATTERN = re.compile(r',')
+
 
 def is_standard_folder(folder_name):
     """Check if a folder is a standard Google Photos folder that should be processed normally"""
@@ -67,10 +73,17 @@ def is_standard_folder(folder_name):
 def is_project_folder(folder_name):
     """Check if a folder is a project folder that should be preserved.
     Any folder that is not a standard folder and not a skip directory is considered a project folder.
+
+    Folders whose names contain a comma are Google Takeout "shared with" directories
+    (e.g. "Nicole, Shannon, Simon"). Their contents are not curated collections;
+    they are per-person copies of shared photos and should be sorted normally.
     """
     if is_standard_folder(folder_name):
         return False
     if folder_name in SKIP_DIRS:
+        return False
+    # Comma-containing names are Takeout "shared with" directories, not projects
+    if SHARED_WITH_PATTERN.search(folder_name):
         return False
     return True
 
@@ -386,9 +399,10 @@ def get_exif_date(media_file):
             try:
                 parsed_date = datetime.strptime(line.strip(), '%Y:%m:%d %H:%M:%S')
 
-                # Only accept dates more than one month in the past
-                # This filters out bogus default dates like 1970-01-01 or future dates
-                if parsed_date < one_month_ago:
+                # Only accept dates within a plausible range:
+                #   - After 1980 (rejects epoch 1970-01-01 and other pre-digital bogus defaults)
+                #   - More than one month in the past (rejects future and near-future garbage)
+                if parsed_date.year > 1980 and parsed_date < one_month_ago:
                     return parsed_date
 
             except ValueError:
@@ -970,17 +984,29 @@ def process_project_folder(project_path, source_folder):
             return media_files
 
 
-def process_regular_files(takeout_path, file_index=None):
+def process_regular_files(takeout_path, file_index=None, raw_mode=False, skip_subdirs=None):
     """Process regular photo files (not in project folders)
 
     Args:
         takeout_path: Path to the Takeout directory to process
         file_index: Optional dict for fast duplicate detection
+        raw_mode: If True, treat takeout_path itself as the scan root without
+                  requiring a 'Google Photos/' subdirectory.  Used for raw files
+                  dropped directly into TO_PROCESS/ without any Takeout structure.
+        skip_subdirs: Optional set of Path objects to skip during os.walk.  Used
+                      in raw_mode to avoid re-processing Takeout subdirs that have
+                      already been handled in the normal pass.
     """
-    # Check if this is the _TO_REVIEW_ directory (no Google Photos subdirectory)
-    if "_TO_REVIEW_" in str(takeout_path):
+    skip_subdirs = skip_subdirs or set()
+
+    # Determine the actual directory to walk
+    if "_TO_REVIEW_" in str(takeout_path) or raw_mode:
+        # _TO_REVIEW_ and raw-file drops are used as-is — no subdirectory expected
         photos_dir = takeout_path
-        print(f"\nProcessing files from _TO_REVIEW_: {takeout_path}")
+        if "_TO_REVIEW_" in str(takeout_path):
+            print(f"\nProcessing files from _TO_REVIEW_: {takeout_path}")
+        else:
+            print(f"\nProcessing raw media files from: {takeout_path}")
     else:
         photos_dir = takeout_path / GOOGLE_PHOTOS_DIR
         if not photos_dir.exists():
@@ -1001,16 +1027,25 @@ def process_regular_files(takeout_path, file_index=None):
     for root, dirs, files in os.walk(photos_dir):
         root_path = Path(root)
 
+        # In raw mode, skip any subdirectory that was already handled as a Takeout dir
+        # (prune dirs in-place so os.walk doesn't descend into them)
+        if skip_subdirs:
+            dirs[:] = [d for d in dirs if root_path / d not in skip_subdirs]
+            if root_path in skip_subdirs:
+                continue
+
         # Skip trash directories
         if any(skip in root_path.parts for skip in SKIP_DIRS):
             continue
 
-        # Skip if this is a project folder
-        relative_to_photos = root_path.relative_to(photos_dir)
-        if len(relative_to_photos.parts) > 0:
-            top_level_folder = relative_to_photos.parts[0]
-            if is_project_folder(top_level_folder):
-                continue
+        # Skip project folders — only applies in normal Takeout mode.
+        # In raw_mode there is no imposed folder hierarchy, so all subdirs are fair game.
+        if not raw_mode:
+            relative_to_photos = root_path.relative_to(photos_dir)
+            if len(relative_to_photos.parts) > 0:
+                top_level_folder = relative_to_photos.parts[0]
+                if is_project_folder(top_level_folder):
+                    continue
 
         for filename in files:
             file_path = root_path / filename
@@ -1441,6 +1476,23 @@ def main():
             # Rebuild index after each Takeout to keep it fresh for the next one
             if file_index is not None:
                 file_index = build_file_index(OUTPUT_DIR, VIDEO_OUTPUT_DIR, PERSON_NAME)
+
+        # Raw-files pass: pick up any media files dropped directly into BASE_DIR
+        # (or in non-Takeout subdirectories) without any Google Takeout folder structure.
+        # Pass the set of already-processed Takeout subdirs so they are not re-walked.
+        known_takeout_subdirs = {t[0] for t in takeout_dirs}
+        stats = process_regular_files(
+            BASE_DIR,
+            file_index,
+            raw_mode=True,
+            skip_subdirs=known_takeout_subdirs,
+        )
+        if stats:
+            for key, value in stats.items():
+                total_stats[key] += value
+
+        if file_index is not None:
+            file_index = build_file_index(OUTPUT_DIR, VIDEO_OUTPUT_DIR, PERSON_NAME)
 
     # Clean up empty directories (skip for _TO_REVIEW_)
     if not is_review_dir:

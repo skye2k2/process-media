@@ -413,6 +413,38 @@ class ImageAnalysisCache:
 
         self.dirty = True
 
+    def transfer_entry(self, old_path, new_path, destination_cache):
+        """
+        Move a cache entry to a new path, potentially in a different cache instance.
+
+        Intended to be called immediately after shutil.move() so that cached
+        analysis data (blur score, hashes, EXIF date) travels with the file.
+        Within the same filesystem volume, shutil.move() is an atomic rename
+        that preserves mtime and size, so the cached values remain valid at
+        the new path without needing to re-stat.
+
+        destination_cache may be the same instance as self (within-directory
+        rename) or a different instance (cross-directory move).
+
+        No-op if old_path has no cached entry.
+
+        Args:
+            old_path:          Pre-move file path (Path or str)
+            new_path:          Post-move file path (Path or str)
+            destination_cache: ImageAnalysisCache instance for new directory
+        """
+        old_key = str(Path(old_path).resolve())
+        new_key = str(Path(new_path).resolve())
+
+        entry = self.cache.pop(old_key, None)
+
+        if entry is None:
+            return
+
+        destination_cache.cache[new_key] = entry
+        destination_cache.dirty = True
+        self.dirty = True
+
 
 # Global cache instance (one per directory, lazily initialized)
 _analysis_caches = {}

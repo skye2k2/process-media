@@ -1303,7 +1303,7 @@ def generate_html_review(directory, output_path=None, include_duplicates=True):
 
     Args:
         directory: Directory to analyze
-        output_path: Where to save HTML (default: _TO_REVIEW_/.TMP_review_report.html)
+        output_path: Where to save HTML (default: <directory>/_review_issues.html)
         include_duplicates: Whether to include duplicate detection
 
     Returns:
@@ -1313,7 +1313,7 @@ def generate_html_review(directory, output_path=None, include_duplicates=True):
     review_base = find_review_base(directory)
 
     if output_path is None:
-        output_path = review_base / ".TMP_review_issues.html"
+        output_path = directory / "_review_issues.html"
     else:
         output_path = Path(output_path)
 
@@ -1417,7 +1417,7 @@ def generate_html_browse(directory, output_path=None):
 
     Args:
         directory: Base directory to scan (e.g., Organized_Photos/)
-        output_path: Where to save HTML (default: _TO_REVIEW_/.TMP_browse_all.html)
+        output_path: Where to save HTML (default: <directory>/_browse_all.html)
 
     Returns:
         Path: Path to generated HTML file
@@ -1429,7 +1429,7 @@ def generate_html_browse(directory, output_path=None):
     review_base = find_review_base(directory)
 
     if output_path is None:
-        output_path = review_base / ".TMP_browse_all.html"
+        output_path = directory / "_browse_all.html"
     else:
         output_path = Path(output_path)
 
@@ -1680,7 +1680,7 @@ def _generate_browse_html(photo_dirs, base_dir):
             margin-bottom: 10px;
             border: 1px solid #333;
             border-radius: 8px;
-            overflow: hidden;
+            /* overflow: hidden intentionally omitted - position:sticky requires it absent */
         }
         .directory-header {
             background: #2a2a2a;
@@ -1690,6 +1690,15 @@ def _generate_browse_html(photo_dirs, base_dir):
             align-items: center;
             gap: 10px;
             user-select: none;
+            /* Sticky so the label stays visible while scrolling through long directories */
+            position: sticky;
+            top: var(--sticky-dir-top, 120px);
+            z-index: 50;
+            border-radius: 8px 8px 0 0;
+        }
+        /* When collapsed the header is the full block - round all four corners */
+        .directory:not(.expanded) .directory-header {
+            border-radius: 8px;
         }
         .directory-header:hover {
             background: #333;
@@ -1709,10 +1718,31 @@ def _generate_browse_html(photo_dirs, base_dir):
             color: #888;
             font-size: 0.9em;
         }
+        /* Removal count pill - hidden until the directory has photos queued for removal */
+        .directory-header .removal-badge {
+            display: none;
+            background: #e65100;
+            color: #fff;
+            padding: 1px 7px;
+            border-radius: 10px;
+            font-size: 0.78em;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        /* Orange border signals that at least one photo in this directory is queued */
+        /* box-shadow doesn't affect layout and respects border-radius, so only the
+           sticky header gets the orange ring, not the expanded card below it */
+        .directory.has-removals .directory-header {
+            box-shadow: 0 0 0 2px #e65100;
+        }
+        .directory.has-removals .directory-header .removal-badge {
+            display: inline-block;
+        }
         .directory-content {
             display: none;
             padding: 16px;
             background: #222;
+            border-radius: 0 0 8px 8px;
         }
         .directory.expanded .directory-content {
             display: block;
@@ -1858,6 +1888,25 @@ def _generate_browse_html(photo_dirs, base_dir):
             font-size: 16px;
         }
 
+        /* Blur badges for low-quality photos */
+        .blur-badge {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.65em;
+            font-weight: 600;
+            color: #fff;
+            z-index: 5;
+        }
+        .blur-badge.blur-critical {
+            background: #c62828;
+        }
+        .blur-badge.blur-warning {
+            background: #e65100;
+        }
+
         /* Lightbox with Keep/Remove buttons */
         .lightbox {
             display: none;
@@ -1937,6 +1986,24 @@ def _generate_browse_html(photo_dirs, base_dir):
             color: #ef5350;
         }
 
+        /* Lightbox image outline indicating keep/remove state */
+        .lightbox img.keep-outline {
+            outline: 6px solid #4CAF50;
+            outline-offset: 4px;
+        }
+        .lightbox img.remove-outline {
+            outline: 6px solid #c62828;
+            outline-offset: 4px;
+        }
+
+        /* Lightbox hint text */
+        .lightbox-hint {
+            position: absolute;
+            bottom: 20px;
+            color: #666;
+            font-size: 12px;
+        }
+
         /* Export bar */
         .export-bar {
             position: fixed;
@@ -1999,8 +2066,9 @@ def _generate_browse_html(photo_dirs, base_dir):
     total_photos = sum(len(d['photos']) for d in photo_dirs)
     total_dirs = len(photo_dirs)
 
+    generated_ts = datetime.now().strftime('%d %b %Y, %H:%M')
     html_parts.append(f'''
-    <script>document.getElementById('total-stats').textContent = '{total_photos:,} photos in {total_dirs} directories';</script>
+    <script>document.getElementById('total-stats').textContent = '{total_photos:,} photos in {total_dirs} directories  ·  generated: {generated_ts}';</script>
     <div id="directories">
 ''')
 
@@ -2025,6 +2093,7 @@ def _generate_browse_html(photo_dirs, base_dir):
             <button class="remove-btn" id="remove-btn" onclick="removeCurrentPhoto()">🗑️ Remove</button>
         </div>
         <div class="lightbox-status" id="lightbox-status"></div>
+        <span class="lightbox-hint">← → navigate • Space toggle • ↑↓ prev/next group • K keep • R remove • Esc close</span>
     </div>
 
     <div class="export-bar">
@@ -2043,6 +2112,7 @@ def _generate_browse_html(photo_dirs, base_dir):
         let currentPhotoStrip = [];
         let currentPhotoIndex = 0;
         let currentPhotoItems = [];  // DOM elements for current strip
+        let currentTimeGroup = null;  // Current time group element for up/down navigation
         const lightbox = document.getElementById('lightbox');
 
         // Size settings: base + 30% per tick (5 ticks total)
@@ -2149,6 +2219,24 @@ def _generate_browse_html(photo_dirs, base_dir):
                 }
             });
             document.getElementById('storage-freed').textContent = formatBytes(totalBytes);
+            updateDirectoryStates();
+        }
+
+        /**
+         * Walk each directory element, count its selected-remove items, and
+         * update the has-removals class and removal-badge text accordingly.
+         * Called after every selection change so the orange border and count stay current.
+         */
+        function updateDirectoryStates() {
+            document.querySelectorAll('.directory').forEach(dir => {
+                const removalItems = dir.querySelectorAll('.photo-item.selected-remove');
+                const removalCount = removalItems.length;
+                dir.classList.toggle('has-removals', removalCount > 0);
+                const badge = dir.querySelector('.removal-badge');
+                if (badge) {
+                    badge.textContent = removalCount > 0 ? `${removalCount} marked` : '';
+                }
+            });
         }
 
         // Select all/deselect all for a time group
@@ -2203,10 +2291,25 @@ def _generate_browse_html(photo_dirs, base_dir):
                 return;
             }
 
-            // Create shell script content
-            let script = '#!/bin/bash\\n# Photo removal script - generated ' + new Date().toISOString() + '\\n';
-            script += '# ' + paths.length + ' photos marked for removal\\n\\n';
-            script += 'set -e\\n\\n';
+            // Sum file sizes for the header comment
+            let totalBytes = 0;
+            paths.forEach(path => {
+                const item = document.querySelector(`.photo-item[data-path="${CSS.escape(path)}"]`);
+                if (item && item.dataset.size) {
+                    totalBytes += parseInt(item.dataset.size, 10);
+                }
+            });
+
+            // Build script with standardized header
+            let script = '#!/bin/bash\\n';
+            script += '# Photo removal script\\n';
+            script += '# Generated:   ' + new Date().toISOString() + '\\n';
+            script += '# Files:       ' + paths.length + '\\n';
+            script += '# Space freed: ' + formatBytes(totalBytes) + '\\n';
+            script += '#\\n';
+            script += '# Run with: bash remove_photos.sh\\n';
+            script += '# (chmod +x is not required when invoking via bash directly)\\n';
+            script += '\\nset +e\\n\\n';
 
             paths.forEach(p => {
                 script += 'rm "' + p.replace(/"/g, '\\\\"') + '"\\n';
@@ -2239,6 +2342,7 @@ def _generate_browse_html(photo_dirs, base_dir):
         function openPhotoLightbox(img) {
             const photoItem = img.closest('.photo-item');
             const timeGroup = photoItem.closest('.time-group');
+            currentTimeGroup = timeGroup;  // Store for up/down navigation
             currentPhotoItems = Array.from(timeGroup.querySelectorAll('.photo-item'));
 
             // Build photo strip with src, path, and short path
@@ -2259,7 +2363,8 @@ def _generate_browse_html(photo_dirs, base_dir):
         function updateLightboxImage() {
             if (currentPhotoStrip.length === 0) return;
             const photo = currentPhotoStrip[currentPhotoIndex];
-            document.getElementById('lightbox-img').src = photo.src;
+            const imgEl = document.getElementById('lightbox-img');
+            imgEl.src = photo.src;
             document.getElementById('lightbox-path').textContent =
                 `${currentPhotoIndex + 1} / ${currentPhotoStrip.length} — ${photo.shortPath}`;
 
@@ -2267,9 +2372,18 @@ def _generate_browse_html(photo_dirs, base_dir):
             document.querySelector('.lightbox-nav.prev').classList.toggle('disabled', currentPhotoIndex === 0);
             document.querySelector('.lightbox-nav.next').classList.toggle('disabled', currentPhotoIndex === currentPhotoStrip.length - 1);
 
-            // Update remove button state
+            // Update remove button state and image outline
             const isMarkedForRemoval = removals[photo.path];
             document.getElementById('remove-btn').classList.toggle('active', isMarkedForRemoval);
+
+            // Set outline class based on state
+            imgEl.classList.remove('keep-outline', 'remove-outline');
+            if (isMarkedForRemoval) {
+                imgEl.classList.add('remove-outline');
+            } else {
+                imgEl.classList.add('keep-outline');
+            }
+
             const status = document.getElementById('lightbox-status');
             if (isMarkedForRemoval) {
                 status.textContent = 'Marked for removal';
@@ -2312,6 +2426,49 @@ def _generate_browse_html(photo_dirs, base_dir):
             }
         }
 
+        function toggleCurrentPhoto() {
+            // Toggle between keep and remove states (no auto-advance)
+            if (currentPhotoStrip.length === 0) return;
+            const photo = currentPhotoStrip[currentPhotoIndex];
+            const isCurrentlyRemove = !!removals[photo.path];
+            setRemoval(photo.path, !isCurrentlyRemove);
+            updateLightboxImage();
+        }
+
+        function navigateToGroup(direction) {
+            // Navigate to next/previous time group, starting at first photo
+            if (!currentTimeGroup) return;
+
+            const allGroups = Array.from(document.querySelectorAll('.time-group'));
+            const currentIdx = allGroups.indexOf(currentTimeGroup);
+            const newIdx = currentIdx + direction;
+
+            if (newIdx >= 0 && newIdx < allGroups.length) {
+                const newGroup = allGroups[newIdx];
+                currentTimeGroup = newGroup;
+                currentPhotoItems = Array.from(newGroup.querySelectorAll('.photo-item'));
+
+                if (currentPhotoItems.length === 0) return;
+
+                // Build photo strip
+                currentPhotoStrip = currentPhotoItems.map(item => ({
+                    src: item.querySelector('img').src,
+                    path: item.dataset.path,
+                    shortPath: item.dataset.shortPath
+                }));
+
+                // Start at first photo in group
+                currentPhotoIndex = 0;
+                updateLightboxImage();
+
+                // Ensure group's parent directory is expanded
+                const directory = newGroup.closest('.directory');
+                if (directory && !directory.classList.contains('expanded')) {
+                    directory.classList.add('expanded');
+                }
+            }
+        }
+
         function closeLightbox() {
             lightbox.classList.remove('active');
         }
@@ -2325,11 +2482,28 @@ def _generate_browse_html(photo_dirs, base_dir):
             if (e.key === 'Escape') closeLightbox();
             else if (e.key === 'ArrowLeft') navigateLightbox(-1);
             else if (e.key === 'ArrowRight') navigateLightbox(1);
+            else if (e.key === 'ArrowUp') { e.preventDefault(); navigateToGroup(-1); }
+            else if (e.key === 'ArrowDown') { e.preventDefault(); navigateToGroup(1); }
+            else if (e.key === ' ') { e.preventDefault(); toggleCurrentPhoto(); }
             else if (e.key === 'k' || e.key === 'K') keepCurrentPhoto();
             else if (e.key === 'r' || e.key === 'R' || e.key === 'Delete' || e.key === 'Backspace') removeCurrentPhoto();
         });
 
+        /**
+         * Measure the fixed sticky-header height and write it into a CSS variable
+         * so that .directory-header sticky tops land just below the global header.
+         * Must be called on load and whenever the global header might resize.
+         */
+        function updateStickyOffset() {
+            const headerEl = document.querySelector('.sticky-header');
+            if (headerEl) {
+                document.documentElement.style.setProperty('--sticky-dir-top', headerEl.offsetHeight + 'px');
+            }
+        }
+
         // Initialize
+        updateStickyOffset();
+        window.addEventListener('resize', updateStickyOffset);
         applyState();
     </script>
 </body>
@@ -2356,6 +2530,7 @@ def _render_browse_directory(dir_info, base_dir):
             <div class="directory-header" onclick="toggleDirectory(this)">
                 <span class="toggle">▶</span>
                 <span class="path">{rel_path}</span>
+                <span class="removal-badge"></span>
                 <span class="count">{len(photos)} photos</span>
             </div>
             <div class="directory-content">
@@ -2406,8 +2581,19 @@ def _render_browse_directory(dir_info, base_dir):
             except OSError:
                 file_size = 0
 
+            # Check for cached blur score
+            blur_badge_html = ''
+            cache = get_analysis_cache(photo.parent)
+            cached_blur = cache.get_blur(photo)
+            if cached_blur is not None:
+                if cached_blur < 20:
+                    blur_badge_html = f'<span class="blur-badge blur-critical">BLUR {cached_blur:.0f}</span>'
+                elif cached_blur < 40:
+                    blur_badge_html = f'<span class="blur-badge blur-warning">BLUR {cached_blur:.0f}</span>'
+
             html_parts.append(f'''
                         <div class="photo-item" data-path="{photo.resolve()}" data-short-path="{short_path}" data-size="{file_size}">
+                            {blur_badge_html}
                             <img src="{file_url}" alt="{photo.name}" loading="lazy" onclick="openPhotoLightbox(this)">
                             <div class="photo-meta" title="{photo.name}">{photo.name}</div>
                             <div class="photo-actions">
@@ -2808,6 +2994,81 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
             font-size: 12px;
         }
 
+        /* Lightbox image outline indicating keep/remove state */
+        .lightbox img.keep-outline {
+            outline: 6px solid #4CAF50;
+            outline-offset: 4px;
+        }
+        .lightbox img.remove-outline {
+            outline: 6px solid #c62828;
+            outline-offset: 4px;
+        }
+
+        /* Lightbox actions and status */
+        .lightbox-actions {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .lightbox-actions button {
+            padding: 12px 30px;
+            font-size: 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .lightbox-actions .keep-btn {
+            background: #4CAF50;
+            color: white;
+        }
+        .lightbox-actions .keep-btn:hover { background: #45a049; }
+        .lightbox-actions .remove-btn {
+            background: #c62828;
+            color: white;
+        }
+        .lightbox-actions .remove-btn:hover { background: #b71c1c; }
+        .lightbox-actions .remove-btn.active {
+            background: #7f1d1d;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+        }
+        .lightbox-status {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #888;
+        }
+        .lightbox-status.marked-remove { color: #ef5350; }
+
+        /* Lightbox warning footer */
+        .lightbox-footer {
+            position: absolute;
+            bottom: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            max-width: 80%;
+            text-align: center;
+        }
+        .lightbox-warning {
+            display: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            margin-top: 8px;
+        }
+        .lightbox-warning.all-removed {
+            background: rgba(198, 40, 40, 0.9);
+            color: white;
+        }
+        .lightbox-warning.edited-pair {
+            background: rgba(255, 152, 0, 0.9);
+            color: white;
+        }
+        .lightbox-warning.both-kept {
+            background: rgba(33, 150, 243, 0.9);
+            color: white;
+        }
+        .lightbox-warning.visible { display: block; }
+
         /* Sticky header */
         .sticky-header {
             position: fixed;
@@ -2825,6 +3086,11 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
         .sticky-header h1 {
             margin: 0;
             font-size: 1.3em;
+        }
+        .sticky-header .generated-date {
+            color: #666;
+            font-size: 0.8em;
+            flex-shrink: 0;
         }
         .nav-links {
             display: flex;
@@ -2862,6 +3128,7 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
 <body>
     <div class="sticky-header">
         <h1>📸 Photo Triage Review</h1>
+        <span class="generated-date" id="review-generated-date"></span>
         <nav class="nav-links">
             <a href="#high-confidence-section" class="nav-link high-confidence">🎯 High-Confidence<span class="nav-count" id="nav-high-count">0</span></a>
             <a href="#needs-review-section" class="nav-link needs-review">⚠️ Needs Review<span class="nav-count" id="nav-review-count">0</span></a>
@@ -2869,6 +3136,10 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
         </nav>
     </div>
 ''']
+
+    # Inject the generated timestamp via JS (avoids converting the large static CSS block to an f-string)
+    _gen_ts = datetime.now().strftime('%d %b %Y, %H:%M')
+    html_parts.append(f'<script>document.getElementById("review-generated-date").textContent = "Generated: {_gen_ts}";</script>')
 
     # Summary section with blur score reference
     html_parts.append(f'''
@@ -3010,7 +3281,17 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
         <span class="lightbox-nav prev" onclick="navigateLightbox(-1)">&#8249;</span>
         <img id="lightbox-img" src="" alt="Full size">
         <span class="lightbox-nav next" onclick="navigateLightbox(1)">&#8250;</span>
-        <span class="lightbox-hint">← → to navigate • Esc to close</span>
+        <div class="lightbox-actions" onclick="event.stopPropagation()">
+            <button class="keep-btn" onclick="keepCurrentPhoto()">✓ Keep</button>
+            <button class="remove-btn" id="remove-btn" onclick="removeCurrentPhoto()">🗑️ Remove</button>
+        </div>
+        <div class="lightbox-status" id="lightbox-status"></div>
+        <div class="lightbox-footer" onclick="event.stopPropagation()">
+            <div class="lightbox-warning all-removed" id="lightbox-warning-all-removed">🚨 ALL copies selected for removal!</div>
+            <div class="lightbox-warning edited-pair" id="lightbox-warning-edited-pair">⚠️ Both original AND edited selected for removal!</div>
+            <div class="lightbox-warning both-kept" id="lightbox-warning-both-kept">ℹ️ Keeping both original AND edited—intentional?</div>
+        </div>
+        <span class="lightbox-hint">← → navigate • Space toggle • ↑↓ prev/next group • K keep • R remove • Esc close</span>
     </div>
 
     <script>
@@ -3020,6 +3301,8 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
         // Track current photo strip for lightbox navigation
         let currentPhotoStrip = [];
         let currentPhotoIndex = 0;
+        let currentGroup = null;  // Current group element for up/down navigation and warnings
+        let currentGroupType = null;  // 'candidate', 'duplicate', or 'strip'
 
         // Sort section by date or blur
         function sortSection(sectionId, sortBy) {
@@ -3049,6 +3332,14 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
             section.querySelectorAll('.sort-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.sort === sortBy);
             });
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
         }
 
         // Load and apply saved decisions on page load
@@ -3192,9 +3483,26 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
                 return;
             }
 
-            // Create a shell script
-            const script = '#!/bin/bash\\n# Photo Triage - Files to Remove\\n# Generated: ' + new Date().toISOString() + '\\n\\n' +
-                toRemove.map(p => 'rm "' + p + '"').join('\\n');
+            // Sum file sizes for the header comment
+            let totalBytes = 0;
+            toRemove.forEach(path => {
+                const card = document.querySelector(`.candidate-card[data-path="${CSS.escape(path)}"]`);
+                if (card && card.dataset.size) {
+                    totalBytes += parseInt(card.dataset.size, 10);
+                }
+            });
+
+            // Build script with standardized header
+            let script = '#!/bin/bash\\n';
+            script += '# Photo removal script\\n';
+            script += '# Generated:   ' + new Date().toISOString() + '\\n';
+            script += '# Files:       ' + toRemove.length + '\\n';
+            script += '# Space freed: ' + formatBytes(totalBytes) + '\\n';
+            script += '#\\n';
+            script += '# Run with: bash remove_photos.sh\\n';
+            script += '# (chmod +x is not required when invoking via bash directly)\\n';
+            script += '\\nset +e\\n\\n';
+            script += toRemove.map(p => 'rm "' + p + '"').join('\\n');
 
             // Create download
             const blob = new Blob([script], { type: 'text/plain' });
@@ -3299,9 +3607,11 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
         }
 
         // Lightbox functions
-        function openLightbox(img, photoStrip, index) {
+        function openLightbox(img, photoStrip, index, group = null, groupType = null) {
             currentPhotoStrip = photoStrip;
             currentPhotoIndex = index;
+            currentGroup = group;
+            currentGroupType = groupType;
             updateLightboxImage();
             lightbox.classList.add('active');
         }
@@ -3310,10 +3620,11 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
             if (currentPhotoStrip.length === 0) return;
 
             const photo = currentPhotoStrip[currentPhotoIndex];
-            document.getElementById('lightbox-img').src = photo.src;
+            const imgEl = document.getElementById('lightbox-img');
+            imgEl.src = photo.src;
 
             // Build header with path, blur, and time
-            let headerText = photo.shortPath;
+            let headerText = `${currentPhotoIndex + 1} / ${currentPhotoStrip.length} — ${photo.shortPath}`;
             if (photo.blur) {
                 headerText += ` • blur: ${photo.blur}`;
             }
@@ -3325,6 +3636,218 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
             // Update nav button states
             document.querySelector('.lightbox-nav.prev').classList.toggle('disabled', currentPhotoIndex === 0);
             document.querySelector('.lightbox-nav.next').classList.toggle('disabled', currentPhotoIndex === currentPhotoStrip.length - 1);
+
+            // Determine keep/remove state for current photo
+            const decisions = loadDecisions();
+            const photoPath = photo.path;
+            const decision = decisions[photoPath];
+            const isMarkedForRemoval = decision && decision.decision === 'REMOVE';
+
+            // Update remove button state and image outline
+            const removeBtn = document.getElementById('remove-btn');
+            if (removeBtn) {
+                removeBtn.classList.toggle('active', isMarkedForRemoval);
+            }
+
+            // Set outline class based on state
+            imgEl.classList.remove('keep-outline', 'remove-outline');
+            if (isMarkedForRemoval) {
+                imgEl.classList.add('remove-outline');
+            } else if (decision && decision.decision === 'KEEP') {
+                imgEl.classList.add('keep-outline');
+            }
+
+            // Update status text
+            const status = document.getElementById('lightbox-status');
+            if (status) {
+                if (isMarkedForRemoval) {
+                    status.textContent = 'Marked for removal';
+                    status.className = 'lightbox-status marked-remove';
+                } else if (decision && decision.decision === 'KEEP') {
+                    status.textContent = 'Keeping';
+                    status.className = 'lightbox-status';
+                } else {
+                    status.textContent = 'Undecided';
+                    status.className = 'lightbox-status';
+                }
+            }
+
+            // Update lightbox warnings based on current group
+            updateLightboxWarnings();
+        }
+
+        function updateLightboxWarnings() {
+            // Hide all warnings by default
+            const allRemovedEl = document.getElementById('lightbox-warning-all-removed');
+            const editedPairEl = document.getElementById('lightbox-warning-edited-pair');
+            const bothKeptEl = document.getElementById('lightbox-warning-both-kept');
+
+            if (allRemovedEl) allRemovedEl.classList.remove('visible');
+            if (editedPairEl) editedPairEl.classList.remove('visible');
+            if (bothKeptEl) bothKeptEl.classList.remove('visible');
+
+            // Only show warnings for duplicate groups
+            if (!currentGroup || currentGroupType !== 'duplicate') return;
+
+            const decisions = loadDecisions();
+            const items = currentGroup.querySelectorAll('.duplicate-item');
+            const hasEditedPair = currentGroup.dataset.hasEditedPair === 'true';
+
+            let allRemoved = true;
+            let originalRemoved = false;
+            let editedRemoved = false;
+            let originalKept = false;
+            let editedKept = false;
+
+            items.forEach(item => {
+                const path = item.dataset.path;
+                const isOriginal = item.dataset.isOriginal === 'true';
+                const isEdited = item.dataset.isEdited === 'true';
+                const itemDecision = decisions[path];
+                const isRemove = itemDecision && itemDecision.decision === 'REMOVE';
+                const isKeep = itemDecision && itemDecision.decision === 'KEEP';
+
+                if (!isRemove) allRemoved = false;
+                if (isOriginal && isRemove) originalRemoved = true;
+                if (isEdited && isRemove) editedRemoved = true;
+                if (isOriginal && isKeep) originalKept = true;
+                if (isEdited && isKeep) editedKept = true;
+            });
+
+            // Show appropriate warnings
+            if (allRemoved && allRemovedEl) {
+                allRemovedEl.classList.add('visible');
+            } else if (hasEditedPair && originalRemoved && editedRemoved && editedPairEl) {
+                editedPairEl.classList.add('visible');
+            }
+
+            if (hasEditedPair && originalKept && editedKept && bothKeptEl) {
+                bothKeptEl.classList.add('visible');
+            }
+        }
+
+        function keepCurrentPhoto() {
+            if (currentPhotoStrip.length === 0) return;
+            const photo = currentPhotoStrip[currentPhotoIndex];
+            setPhotoDecisionByPath(photo.path, 'KEEP');
+            updateLightboxImage();
+            // Auto-advance to next photo
+            if (currentPhotoIndex < currentPhotoStrip.length - 1) {
+                currentPhotoIndex++;
+                updateLightboxImage();
+            }
+        }
+
+        function removeCurrentPhoto() {
+            if (currentPhotoStrip.length === 0) return;
+            const photo = currentPhotoStrip[currentPhotoIndex];
+            setPhotoDecisionByPath(photo.path, 'REMOVE');
+            updateLightboxImage();
+            // Auto-advance to next photo
+            if (currentPhotoIndex < currentPhotoStrip.length - 1) {
+                currentPhotoIndex++;
+                updateLightboxImage();
+            }
+        }
+
+        function toggleCurrentPhoto() {
+            // Toggle between keep and remove states (no auto-advance)
+            if (currentPhotoStrip.length === 0) return;
+            const photo = currentPhotoStrip[currentPhotoIndex];
+            const decisions = loadDecisions();
+            const currentDecision = decisions[photo.path];
+            const isCurrentlyRemove = currentDecision && currentDecision.decision === 'REMOVE';
+            setPhotoDecisionByPath(photo.path, isCurrentlyRemove ? 'KEEP' : 'REMOVE');
+            updateLightboxImage();
+        }
+
+        function setPhotoDecisionByPath(path, decision) {
+            // Update decision in localStorage and update DOM elements
+            const decisions = loadDecisions();
+            decisions[path] = { path: path, decision: decision };
+            saveDecisions(decisions);
+
+            // Update candidate card if exists
+            const card = document.querySelector(`.candidate-card[data-path="${CSS.escape(path)}"]`);
+            if (card) {
+                card.classList.remove('decided-keep', 'decided-remove');
+                card.classList.add('decided-' + decision.toLowerCase());
+                const keepBtn = card.querySelector('.btn-keep');
+                const removeBtn = card.querySelector('.btn-remove');
+                if (keepBtn) keepBtn.classList.toggle('selected', decision === 'KEEP');
+                if (removeBtn) removeBtn.classList.toggle('selected', decision === 'REMOVE');
+            }
+
+            // Update duplicate item if exists
+            const dupItem = document.querySelector(`.duplicate-item[data-path="${CSS.escape(path)}"]`);
+            if (dupItem) {
+                dupItem.classList.remove('keep', 'remove-selected');
+                if (decision === 'KEEP') {
+                    dupItem.classList.add('keep');
+                } else {
+                    dupItem.classList.add('remove-selected');
+                }
+                const keepBtn = dupItem.querySelector('.keep-btn');
+                const removeBtn = dupItem.querySelector('.remove-btn');
+                if (keepBtn) keepBtn.classList.toggle('selected', decision === 'KEEP');
+                if (removeBtn) removeBtn.classList.toggle('selected', decision === 'REMOVE');
+
+                // Update warnings in the DOM
+                checkDuplicateWarnings(dupItem.closest('.duplicate-group'));
+            }
+
+            updateCounts();
+        }
+
+        function navigateToGroup(direction) {
+            // Navigate to next/previous group, starting at first photo
+            if (!currentGroup) return;
+
+            let allGroups;
+            if (currentGroupType === 'duplicate') {
+                allGroups = Array.from(document.querySelectorAll('.duplicate-group'));
+            } else if (currentGroupType === 'strip') {
+                allGroups = Array.from(document.querySelectorAll('.photo-strip'));
+            } else {
+                // Candidate cards are individual, so navigate between cards
+                allGroups = Array.from(document.querySelectorAll('.candidate-card'));
+            }
+
+            const currentIdx = allGroups.indexOf(currentGroup);
+            const newIdx = currentIdx + direction;
+
+            if (newIdx >= 0 && newIdx < allGroups.length) {
+                const newGroup = allGroups[newIdx];
+                currentGroup = newGroup;
+
+                // Build new photo strip from group
+                let items;
+                if (currentGroupType === 'duplicate') {
+                    items = Array.from(newGroup.querySelectorAll('.duplicate-item'));
+                } else if (currentGroupType === 'strip') {
+                    items = Array.from(newGroup.querySelectorAll('.photo-item'));
+                } else {
+                    // Single candidate card
+                    items = [newGroup];
+                }
+
+                if (items.length === 0) return;
+
+                currentPhotoStrip = items.map(item => {
+                    const img = item.querySelector('img');
+                    return {
+                        src: img ? img.src : '',
+                        shortPath: item.dataset.shortPath || (img ? img.alt : ''),
+                        path: item.dataset.fullPath || item.dataset.path || '',
+                        blur: item.dataset.blur || '',
+                        time: item.dataset.time || ''
+                    };
+                });
+
+                // Start at first photo in group
+                currentPhotoIndex = 0;
+                updateLightboxImage();
+            }
         }
 
         function navigateLightbox(direction) {
@@ -3356,10 +3879,11 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
                     const photoData = photos.map(p => ({
                         src: p.querySelector('img').src,
                         shortPath: p.dataset.shortPath || p.querySelector('img').alt,
+                        path: p.dataset.fullPath || p.dataset.path || '',
                         blur: p.dataset.blur || '',
                         time: p.dataset.time || ''
                     }));
-                    openLightbox(img, photoData, idx);
+                    openLightbox(img, photoData, idx, strip, 'strip');
                 };
             });
         });
@@ -3375,13 +3899,14 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
             const photoData = allItems.map(item => ({
                 src: item.querySelector('img').src,
                 shortPath: item.dataset.shortPath || '',
+                path: item.dataset.path || '',
                 blur: item.dataset.blur || '',
                 time: ''
             }));
 
             // Find current index
             const currentIdx = allItems.indexOf(duplicateItem);
-            openLightbox(img, photoData, currentIdx);
+            openLightbox(img, photoData, currentIdx, group, 'duplicate');
         }
 
         // Keyboard navigation
@@ -3394,6 +3919,19 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
                 navigateLightbox(-1);
             } else if (e.key === 'ArrowRight') {
                 navigateLightbox(1);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                navigateToGroup(-1);
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                navigateToGroup(1);
+            } else if (e.key === ' ') {
+                e.preventDefault();
+                toggleCurrentPhoto();
+            } else if (e.key === 'k' || e.key === 'K') {
+                keepCurrentPhoto();
+            } else if (e.key === 'r' || e.key === 'R' || e.key === 'Delete' || e.key === 'Backspace') {
+                removeCurrentPhoto();
             }
         });
 
@@ -3421,11 +3959,14 @@ def _render_candidate_card(item, base_dir, is_safe=True, preselect_remove=False,
     blur = item['blur']
     context = item['context']
 
-    # Get file modification date for context (human-readable format)
+    # Get file modification date and size for context
     try:
-        mtime = path.stat().st_mtime
+        stat = path.stat()
+        mtime = stat.st_mtime
+        file_size = stat.st_size
         date_str = datetime.fromtimestamp(mtime).strftime('%-d %B %Y')
     except OSError:
+        file_size = 0
         date_str = 'Unknown date'
 
     # Determine blur class
@@ -3474,7 +4015,7 @@ def _render_candidate_card(item, base_dir, is_safe=True, preselect_remove=False,
         hint_text = '⚠️ <strong>Review needed</strong> &mdash; No sharp alternative within 5min'
 
     return f'''
-        <div class="candidate-card" data-path="{path.resolve()}" data-card-id="{card_id}"{preselect_attr}{extra_attr_str}>
+        <div class="candidate-card" data-path="{path.resolve()}" data-card-id="{card_id}" data-size="{file_size}"{preselect_attr}{extra_attr_str}>
             <div class="candidate-header">
                 <div>
                     <strong>{path.name}</strong>
@@ -3816,7 +4357,7 @@ Examples:
     review_parser.add_argument('directory', nargs='?', default=None,
                                help='Directory to analyze (default: Organized_Photos/)')
     review_parser.add_argument('--output', '-o',
-                               help='Output path for HTML (default: _TO_REVIEW_/.TMP_review_issues.html)')
+                               help='Output path for HTML (default: <directory>/_review_issues.html)')
     review_parser.add_argument('--no-duplicates', action='store_true',
                                help='Skip duplicate detection')
     review_parser.add_argument('--open', action='store_true',
@@ -3827,7 +4368,7 @@ Examples:
     browse_parser.add_argument('directory', nargs='?', default=None,
                                help='Directory to browse (default: Organized_Photos/)')
     browse_parser.add_argument('--output', '-o',
-                               help='Output path for HTML (default: _TO_REVIEW_/.TMP_browse_all.html)')
+                               help='Output path for HTML (default: <directory>/_browse_all.html)')
     browse_parser.add_argument('--open', action='store_true',
                                help='Open report in browser after generation')
 

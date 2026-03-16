@@ -71,6 +71,10 @@ def print_menu():
     print("     Find Pixel Motion Photos (dual-stream videos that break QuickLook)")
     print("     Extract stills, delete videos, or make QuickLook-compatible")
     print()
+    print("  5. Create Event Folders")
+    print("     Group holiday/birthday photos into named event sub-folders")
+    print("     Covers: birthdays (J/K/Z), 4th of July, Halloween, Thanksgiving, Christmas")
+    print()
     print("  0. Exit")
     print()
 
@@ -407,6 +411,98 @@ def action_motion_photos():
         print(f"  Errors: {stats['errors']}")
 
 
+def action_create_event_folders():
+    """
+    Group holiday and birthday photos into named event sub-folders.
+
+    Runs create_event_folders.py as a dry-run first, then prompts before
+    executing for real. Follows the same confirm-then-execute pattern as
+    all other actions in this workflow.
+    """
+    from create_event_folders import build_holiday_windows, process_year, PHOTO_OUTPUT_DIR
+    from analyze_photo_quality import save_all_caches
+
+    print()
+    print('-' * 70)
+    print("Create Event Folders — Holiday and Birthday Photo Grouping")
+    print('-' * 70)
+    print()
+    print("Scans month folders in Organized_Photos/ and moves matching photos")
+    print("into named event sub-folders (e.g., '2024 Christmas', '2024 J Birth').")
+    print()
+    print("Only direct children of MM MonthName folders are candidates.")
+    print("Photos already in any sub-folder are never touched.")
+    print()
+
+    photos_dir = PHOTO_OUTPUT_DIR
+
+    if not photos_dir.exists():
+        print(f"ERROR: Photos directory not found: {photos_dir}")
+        return
+
+    year_dirs = sorted(
+        d for d in photos_dir.iterdir()
+        if d.is_dir() and d.name.isdigit() and len(d.name) == 4
+    )
+
+    if not year_dirs:
+        print("No year directories found. Nothing to do.")
+        return
+
+    print(f"Found {len(year_dirs)} year(s): {', '.join(d.name for d in year_dirs)}")
+    print()
+
+    if not confirm_action("Create event folders (dry run)", dry_run=True):
+        print("\nCancelled.")
+        return
+
+    print()
+    print("Dry-run preview:")
+
+    grand_candidates = 0
+
+    for year_dir in year_dirs:
+        result = process_year(year_dir, dry_run=True, verbose=False)
+
+        if result and result['events_found'] > 0:
+            grand_candidates += result['total_candidates']
+
+    print()
+    print(f"Total photos identified across all years: {grand_candidates}")
+
+    if grand_candidates == 0:
+        print("\nNo event photos found matching the defined windows. Nothing to do.")
+        return
+
+    print()
+    response = get_user_choice(
+        "Move these files for real? [y/n]: ",
+        ['y', 'n', 'yes', 'no']
+    )
+
+    if response not in ['y', 'yes']:
+        print("\nCancelled. No files moved.")
+        return
+
+    print()
+    print("Moving files...")
+    print()
+
+    grand_moved = 0
+
+    for year_dir in year_dirs:
+        result = process_year(year_dir, dry_run=False, verbose=False)
+
+        if result:
+            grand_moved += result['total_moved']
+
+    save_all_caches()
+
+    print()
+    print(f"Done. {grand_moved} photo(s) moved into event folders.")
+    print("Analysis caches updated — no re-analysis needed.")
+
+
 # ============================================================================
 # MAIN WORKFLOW
 # ============================================================================
@@ -418,7 +514,7 @@ def main():
     while True:
         print_menu()
 
-        choice = get_user_choice("Select action [0-4]: ", ['0', '1', '2', '3', '4'])
+        choice = get_user_choice("Select action [0-5]: ", ['0', '1', '2', '3', '4', '5'])
 
         if choice == '0':
             print("\nExiting. No changes made.")
@@ -435,6 +531,9 @@ def main():
 
         elif choice == '4':
             action_motion_photos()
+
+        elif choice == '5':
+            action_create_event_folders()
 
         print()
         input("Press Enter to return to menu...")

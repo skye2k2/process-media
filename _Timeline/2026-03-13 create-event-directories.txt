@@ -1,0 +1,256 @@
+python3 create_event_folders.py --execute
+
+======================================================================
+Event Folder Creator  —  EXECUTING MOVES
+======================================================================
+  Photos: /Users/skye2k2/sandbox/repositories/personal/process-media/Organized_Photos
+  Years:  1999, 2004, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026
+
+  1999:
+
+  2004:
+
+  2009:
+    2009 Christmas: 1 photo(s)
+
+  2010:
+    2010 J Birth: 11 photo(s)
+    2010 Fourth of July: 1 photo(s)
+
+  2011:
+
+  2012:
+
+  2013:
+    2013 Fourth of July: 2 photo(s)
+    2013 Halloween: 3 photo(s)
+    2013 Thanksgiving: 36 photo(s)
+    --- potential events (>= 35 photos/day) ---
+    06-05 Event: 40 photo(s)
+    10-13 Event: 66 photo(s)
+    10-30 Event: 36 photo(s)
+
+  2014:
+    2014 J Birthday - 4: 12 photo(s)
+    2014 Z Birthday - 1: 2 photo(s)
+    2014 Halloween: 3 photo(s)
+    2014 Christmas: 1 photo(s)
+    --- potential events (>= 35 photos/day) ---
+    05-19 Event: 48 photo(s)
+    07-02 Event: 51 photo(s)
+
+  2015:
+    2015 Z Birthday - 2: 1 photo(s)
+    2015 Fourth of July: 7 photo(s)
+    2015 Thanksgiving: 1 photo(s)
+    2015 Christmas: 54 photo(s)
+
+  2016:
+    2016 J Birthday - 6: 170 photo(s)
+    2016 K Birth: 60 photo(s)
+    2016 Z Birthday - 3: 68 photo(s)
+    2016 Fourth of July: 15 photo(s)
+    2016 Halloween: 26 photo(s)
+    2016 Thanksgiving: 20 photo(s)
+    2016 Christmas: 52 photo(s)
+    --- potential events (>= 35 photos/day) ---
+    05-01 Event: 39 photo(s)
+    06-04 Event: 50 photo(s)
+    06-08 Event: 42 photo(s)
+    07-18–07-19 Event: 149 photo(s)
+    07-23 Event: 42 photo(s)
+    10-29 Event: 36 photo(s)
+
+  2017:
+    2017 J Birthday - 7: 94 photo(s)
+    2017 K Birthday - 1: 105 photo(s)
+    2017 Z Birthday - 4: 168 photo(s)
+    2017 Fourth of July: 44 photo(s)
+    2017 Halloween: 37 photo(s)
+    2017 Thanksgiving: 60 photo(s)
+    2017 Christmas: 71 photo(s)
+    --- potential events (>= 35 photos/day) ---
+    04-15 Event: 41 photo(s)
+    06-10 Event: 60 photo(s)
+    07-21 Event: 122 photo(s)
+    08-02 Event: 36 photo(s)
+    08-08 Event: 56 photo(s)
+    08-26 Event: 39 photo(s)
+    08-29 Event: 44 photo(s)
+    10-07 Event: 56 photo(s)
+    10-23–10-25 Event: 133 photo(s)
+    10-27 Event: 46 photo(s)
+    10-29 Event: 110 photo(s)
+    11-02 Event: 51 photo(s)
+    11-30 Event: 40 photo(s)
+    12-15 Event: 40 photo(s)
+    12-27 Event: 61 photo(s)
+
+  2018:
+    2018 J Birthday - 8: 172 photo(s)
+    2018 K Birthday - 2: 170 photo(s)
+    2018 Z Birthday - 5: 133 photo(s)
+    2018 Fourth of July: 27 photo(s)
+    2018 Halloween: 35 photo(s)
+    2018 Thanksgiving: 23 photo(s)
+    2018 Christmas: 69 photo(s)
+    --- potential events (>= 35 photos/day) ---
+    02-01 Event: 53 photo(s)
+    02-20 Event: 58 photo(s)
+    04-12 Event: 35 photo(s)
+    05-21 Event: 38 photo(s)
+    05-31 Event: 53 photo(s)
+    06-02 Event: 42 photo(s)
+    06-14 Event: 48 photo(s)
+    06-22 Event: 52 photo(s)
+    07-09 Event: 59 photo(s)
+    07-26 Event: 37 photo(s)
+    08-09 Event: 53 photo(s)
+    08-21 Event: 52 photo(s)
+    09-22 Event: 35 photo(s)
+    10-18 Event: 88 photo(s)
+    10-22 Event: 94 photo(s)
+    10-26–10-27 Event: 115 photo(s)
+    10-29 Event: 38 photo(s)
+
+  2019:
+    2019 J Birthday - 9: 109 photo(s)
+    2019 K Birthday - 3: 76 photo(s)
+    2019 Z Birthday - 6: 174 photo(s)
+    2019 Fourth of July: 88 photo(s)
+    2019 Halloween: 25 photo(s)
+    2019 Thanksgiving: 18 photo(s)
+    2019 Christmas: 37 photo(s)
+    --- potential events (>= 35 photos/day) ---
+    01-05 Event: 49 photo(s)
+    01-26 Event: 66 photo(s)
+    02-22 Event: 35 photo(s)
+    03-08 Event: 37 photo(s)
+    03-27 Event: 52 photo(s)
+    04-20 Event: 43 photo(s)
+    05-04 Event: 37 photo(s)
+    06-03 Event: 83 photo(s)
+    06-05 Event: 47 photo(s)
+    06-12 Event: 42 photo(s)
+    06-28 Event: 49 photo(s)
+    07-01 Event: 37 photo(s)
+    07-15 Event: 36 photo(s)
+    07-19 Event: 38 photo(s)
+    07-30 Event: 45 photo(s)
+    08-06 Event: 81 photo(s)
+    08-13 Event: 75 photo(s)
+    08-20 Event: 44 photo(s)
+    10-17 Event: 86 photo(s)
+    10-25 Event: 44 photo(s)
+    12-13 Event: 40 photo(s)
+
+  2020:
+    2020 J Birthday - 10: 69 photo(s)
+    2020 K Birthday - 4: 179 photo(s)
+    2020 Z Birthday - 7: 65 photo(s)
+    2020 Fourth of July: 105 photo(s)
+    2020 Halloween: 5 photo(s)
+    2020 Thanksgiving: 12 photo(s)
+    2020 Christmas: 44 photo(s)
+    --- potential events (>= 35 photos/day) ---
+    01-19 Event: 59 photo(s)
+    06-10 Event: 54 photo(s)
+    06-23 Event: 41 photo(s)
+    06-29–06-30 Event: 126 photo(s)
+    07-06 Event: 56 photo(s)
+    07-14 Event: 52 photo(s)
+    07-27–07-28 Event: 111 photo(s)
+    10-15 Event: 36 photo(s)
+    10-21 Event: 41 photo(s)
+
+  2021:
+    2021 J Birthday - 11: 105 photo(s)
+    2021 K Birthday - 5: 157 photo(s)
+    2021 Z Birthday - 8: 102 photo(s)
+    2021 Fourth of July: 8 photo(s)
+    2021 Halloween: 2 photo(s)
+    2021 Thanksgiving: 58 photo(s)
+    2021 Christmas: 39 photo(s)
+    --- potential events (>= 35 photos/day) ---
+    04-04 Event: 42 photo(s)
+    04-07 Event: 73 photo(s)
+    04-30 Event: 39 photo(s)
+    05-11–05-12 Event: 102 photo(s)
+    06-03 Event: 41 photo(s)
+    06-08 Event: 49 photo(s)
+    06-16 Event: 44 photo(s)
+    07-01 Event: 42 photo(s)
+    07-23 Event: 51 photo(s)
+    07-27 Event: 35 photo(s)
+    10-16 Event: 56 photo(s)
+    10-30 Event: 42 photo(s)
+    12-31 Event: 36 photo(s)
+
+  2022:
+    2022 J Birthday - 12: 75 photo(s)
+    2022 K Birthday - 6: 111 photo(s)
+    2022 Z Birthday - 9: 74 photo(s)
+    2022 Fourth of July: 36 photo(s)
+    2022 Halloween: 13 photo(s)
+    2022 Thanksgiving: 17 photo(s)
+    2022 Christmas: 76 photo(s)
+    --- potential events (>= 35 photos/day) ---
+    04-16 Event: 35 photo(s)
+    05-27 Event: 39 photo(s)
+    06-10 Event: 53 photo(s)
+    07-16 Event: 41 photo(s)
+    08-12 Event: 36 photo(s)
+    10-14 Event: 49 photo(s)
+    11-12 Event: 54 photo(s)
+
+  2023:
+    2023 J Birthday - 13: 127 photo(s)
+    2023 K Birthday - 7: 91 photo(s)
+    2023 Z Birthday - 10: 80 photo(s)
+    2023 Fourth of July: 21 photo(s)
+    2023 Halloween: 14 photo(s)
+    2023 Thanksgiving: 61 photo(s)
+    2023 Christmas: 60 photo(s)
+    --- potential events (>= 35 photos/day) ---
+    01-02 Event: 69 photo(s)
+    05-30–05-31 Event: 93 photo(s)
+    06-04–06-05 Event: 250 photo(s)
+    07-14 Event: 61 photo(s)
+    07-21 Event: 43 photo(s)
+    10-06 Event: 57 photo(s)
+    10-19 Event: 40 photo(s)
+
+  2024:
+    2024 J Birthday - 14: 119 photo(s)
+    2024 K Birthday - 8: 104 photo(s)
+    2024 Z Birthday - 11: 75 photo(s)
+    2024 Fourth of July: 20 photo(s)
+    2024 Thanksgiving: 5 photo(s)
+    --- potential events (>= 35 photos/day) ---
+    01-01 Event: 39 photo(s)
+    03-30 Event: 45 photo(s)
+    04-04 Event: 49 photo(s)
+    05-18 Event: 53 photo(s)
+    06-04 Event: 81 photo(s)
+    06-18 Event: 46 photo(s)
+    07-08 Event: 71 photo(s)
+    08-12 Event: 60 photo(s)
+
+  2025:
+    2025 J Birthday - 15: 46 photo(s)
+    2025 K Birthday - 9: 20 photo(s)
+    2025 Z Birthday - 12: 19 photo(s)
+    2025 Fourth of July: 9 photo(s)
+    2025 Halloween: 20 photo(s)
+    2025 Thanksgiving: 18 photo(s)
+    --- potential events (>= 35 photos/day) ---
+    08-02 Event: 35 photo(s)
+
+  2026:
+
+----------------------------------------------------------------------
+Summary:
+  Years with event photos: 15
+  Total photos identified: 10719
+  Total photos moved:      10719
+  Analysis caches updated.
