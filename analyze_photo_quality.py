@@ -413,6 +413,67 @@ class ImageAnalysisCache:
 
         self.dirty = True
 
+    def get_dimensions(self, file_path):
+        """
+        Get cached image dimensions for a file if the cache entry is still valid.
+
+        Args:
+            file_path: Path to the image file
+
+        Returns:
+            (width, height) tuple of ints, or None if not cached/invalid.
+        """
+        file_path = Path(file_path).resolve()
+        key = str(file_path)
+
+        if key not in self.cache:
+            return None
+
+        entry = self.cache[key]
+
+        if not self._is_valid(file_path, entry):
+            return None
+
+        w = entry.get('image_width')
+        h = entry.get('image_height')
+
+        if w and h:
+            return (int(w), int(h))
+
+        return None
+
+    def set_dimensions(self, file_path, width, height):
+        """
+        Store image dimensions for a file, preserving other cached values.
+
+        Args:
+            file_path: Path to the image file
+            width:     Image width in pixels
+            height:    Image height in pixels
+        """
+        file_path = Path(file_path).resolve()
+        key = str(file_path)
+
+        try:
+            stat = file_path.stat()
+        except OSError:
+            return
+
+        if key in self.cache:
+            self.cache[key]['mtime'] = stat.st_mtime
+            self.cache[key]['size'] = stat.st_size
+            self.cache[key]['image_width'] = width
+            self.cache[key]['image_height'] = height
+        else:
+            self.cache[key] = {
+                'mtime': stat.st_mtime,
+                'size': stat.st_size,
+                'image_width': width,
+                'image_height': height,
+            }
+
+        self.dirty = True
+
     def transfer_entry(self, old_path, new_path, destination_cache):
         """
         Move a cache entry to a new path, potentially in a different cache instance.

@@ -88,6 +88,57 @@ DEFAULT_DIRECTORY = "Organized_Photos"
 PROGRESS_INTERVAL = 100  # Log every N photos processed
 
 
+def get_image_dimensions(file_path):
+    """
+    Return the pixel dimensions of a photo, using the persistent analysis cache.
+
+    Checks the per-directory cache first (populated by batch_extract_exif_dates,
+    which now fetches ImageWidth/ImageHeight alongside date fields). Falls back
+    to a single exiftool call for files not yet cached.
+
+    Used by _sort_paths_by_keeper_priority to prefer higher-resolution originals
+    over compressed copies in perceptual-duplicate groups (BUG-2).
+
+    Args:
+        file_path: Path to the photo file
+
+    Returns:
+        (width, height) tuple of ints, or (0, 0) if dimensions cannot be determined.
+    """
+    file_path = Path(file_path)
+
+    cache = get_analysis_cache(file_path.parent)
+    cached = cache.get_dimensions(file_path)
+
+    if cached:
+        return cached
+
+    # Single-file fallback
+    try:
+        result = subprocess.run(
+            ['exiftool', '-ImageWidth', '-ImageHeight', '-s', '-s', '-s', str(file_path)],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            lines = [l.strip() for l in result.stdout.strip().split('\n') if l.strip()]
+
+            if len(lines) >= 2:
+                try:
+                    w, h = int(lines[0]), int(lines[1])
+                    cache.set_dimensions(file_path, w, h)
+                    return (w, h)
+                except ValueError:
+                    pass
+
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    return (0, 0)
+
+
 def get_exif_date(file_path):
     """
     Read the EXIF DateTimeOriginal from a photo file, using persistent cache.
@@ -216,8 +267,10 @@ def batch_extract_exif_dates(photo_paths, show_progress=True):
             print(f"      Batch {batch_idx + 1}/{total_batches} ({batch_end}/{len(uncached)} photos)...", flush=True)
 
         try:
-            # Use JSON output for reliable parsing of multiple files
-            cmd = ['exiftool', '-json', '-DateTimeOriginal', '-CreateDate'] + [str(p) for p in batch]
+            # Use JSON output for reliable parsing of multiple files.
+            # Fetch date AND dimensions in one call — no extra subprocess cost.
+            cmd = ['exiftool', '-json', '-DateTimeOriginal', '-CreateDate',
+                   '-ImageWidth', '-ImageHeight'] + [str(p) for p in batch]
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -248,6 +301,15 @@ def batch_extract_exif_dates(photo_paths, show_progress=True):
                         else:
                             results[source_file] = 0
                             cache.set_exif_date(source_path, 0)
+
+                        # Cache dimensions if present (used by BUG-2 resolution comparison)
+                        img_w = item.get('ImageWidth')
+                        img_h = item.get('ImageHeight')
+                        if img_w and img_h:
+                            try:
+                                cache.set_dimensions(source_path, int(img_w), int(img_h))
+                            except (ValueError, TypeError):
+                                pass
                 except json.JSONDecodeError:
                     # Fall back to marking all as "no date"
                     for p in batch:
@@ -894,6 +956,76 @@ def print_folder_summary(summaries):
 # AUTO-TRIAGE
 # ============================================================================
 
+# Subdirectory names that indicate a file is in a quarantine / review area and
+# should be deprioritized as the keeper when a better-organized copy exists.
+_REVIEW_PATH_SEGMENTS = {'_TO_REVIEW_', 'Duplicates', 'Blurry', '_archive'}
+
+
+def _sort_paths_by_keeper_priority(paths, dup_type='exact'):
+    """
+    Sort a list of Path objects so that index 0 is the best candidate to KEEP.
+
+    Keeper priority chain:
+    1. Non-review-area paths (organized year/month folders beat _TO_REVIEW_)
+    2. For perceptual duplicates specifically: higher pixel count (prefer the
+       full-resolution original over a compressed/texted copy)
+    3. EXIF DateTimeOriginal (earliest timestamp = the true original; mtime is
+       unreliable because file copies, Takeout exports, and card readers all
+       corrupt it)
+    4. Larger file size (more bytes = less lossy compression history)
+    5. Shorter filename (sequential camera names like DSC_0001 are shorter
+       than collision-resolved copies like DSC_0001_1)
+    6. mtime descending (absolute last resort)
+
+    Args:
+        paths:    Iterable of Path objects in the duplicate group
+        dup_type: 'exact' or 'similar' (pHash near-match)
+
+    Returns:
+        New sorted list of Path objects (does not mutate the input).
+    """
+    def _sort_key(path):
+        path = Path(path)
+
+        # Criterion 1: files inside review/quarantine areas are deprioritized
+        in_review = int(any(seg in _REVIEW_PATH_SEGMENTS for seg in path.parts))
+
+        # Criterion 2: pixel count (only meaningful for perceptual-similar groups)
+        if dup_type == 'similar':
+            w, h = get_image_dimensions(path)
+            pixel_count = w * h
+        else:
+            pixel_count = 0
+
+        # Criterion 3: EXIF date (earlier = original; use 0 when unavailable so
+        # files without EXIF don't falsely win over those with it)
+        exif_dt = get_exif_date(path)
+        exif_ts = exif_dt.timestamp() if exif_dt else float('inf')
+
+        # Criterion 4: file size (larger = prefer)
+        try:
+            size = path.stat().st_size
+            mtime = path.stat().st_mtime
+        except OSError:
+            size = 0
+            mtime = 0
+
+        # Criterion 5: filename length (shorter = prefer)
+        name_len = len(path.name)
+
+        # Return a tuple that Python's sort can compare.
+        # Lower = better keeper (sort ascending, then take index 0).
+        # in_review: 0 beats 1
+        # pixel_count: negate so higher pixels sorts lower
+        # exif_ts: lower (earlier) is better
+        # size: negate so larger file sorts lower
+        # name_len: shorter is better
+        # mtime: negate so newer sorts lower (last resort)
+        return (in_review, -pixel_count, exif_ts, -size, name_len, -mtime)
+
+    return sorted(paths, key=_sort_key)
+
+
 class TriageManifest:
     """
     Tracks all moves for undo capability.
@@ -1013,20 +1145,15 @@ def auto_triage(directory, dry_run=True, manifest_path=None, review_dir=None, us
         if len(paths) < 2:
             continue
 
-        # Keep newest, move others
-        paths_with_mtime = []
+        # Use smart keeper selection: EXIF date, review-area penalty, size tiebreakers.
+        # Sorting by mtime alone is unreliable — card readers and file copies
+        # corrupt filesystem timestamps (see BUG-1 in NEXT.md).
+        paths_sorted = _sort_paths_by_keeper_priority(
+            [Path(p) for p in paths], dup_type='exact'
+        )
 
-        for p in paths:
-            try:
-                mtime = Path(p).stat().st_mtime
-                paths_with_mtime.append((p, mtime))
-            except OSError:
-                results['errors'].append(f"Cannot stat: {p}")
-
-        paths_with_mtime.sort(key=lambda x: x[1], reverse=True)
-
-        # First is newest (keep), rest are duplicates
-        for dup_path, _ in paths_with_mtime[1:]:
+        # First element is the keeper; the rest are moved for review
+        for dup_path in paths_sorted[1:]:
             dup_path = Path(dup_path)
             dest_folder = review_base / REVIEW_DUPLICATES
             dest_path = dest_folder / dup_path.name
@@ -1303,7 +1430,7 @@ def generate_html_review(directory, output_path=None, include_duplicates=True):
 
     Args:
         directory: Directory to analyze
-        output_path: Where to save HTML (default: <directory>/_review_issues.html)
+        output_path: Where to save HTML (default: _TO_REVIEW_/.TMP_review_report.html)
         include_duplicates: Whether to include duplicate detection
 
     Returns:
@@ -1313,7 +1440,7 @@ def generate_html_review(directory, output_path=None, include_duplicates=True):
     review_base = find_review_base(directory)
 
     if output_path is None:
-        output_path = directory / "_review_issues.html"
+        output_path = review_base / ".TMP_review_issues.html"
     else:
         output_path = Path(output_path)
 
@@ -1417,7 +1544,7 @@ def generate_html_browse(directory, output_path=None):
 
     Args:
         directory: Base directory to scan (e.g., Organized_Photos/)
-        output_path: Where to save HTML (default: <directory>/_browse_all.html)
+        output_path: Where to save HTML (default: _TO_REVIEW_/.TMP_browse_all.html)
 
     Returns:
         Path: Path to generated HTML file
@@ -1429,7 +1556,7 @@ def generate_html_browse(directory, output_path=None):
     review_base = find_review_base(directory)
 
     if output_path is None:
-        output_path = directory / "_browse_all.html"
+        output_path = review_base / ".TMP_browse_all.html"
     else:
         output_path = Path(output_path)
 
@@ -1680,7 +1807,7 @@ def _generate_browse_html(photo_dirs, base_dir):
             margin-bottom: 10px;
             border: 1px solid #333;
             border-radius: 8px;
-            /* overflow: hidden intentionally omitted - position:sticky requires it absent */
+            overflow: hidden;
         }
         .directory-header {
             background: #2a2a2a;
@@ -1690,15 +1817,6 @@ def _generate_browse_html(photo_dirs, base_dir):
             align-items: center;
             gap: 10px;
             user-select: none;
-            /* Sticky so the label stays visible while scrolling through long directories */
-            position: sticky;
-            top: var(--sticky-dir-top, 120px);
-            z-index: 50;
-            border-radius: 8px 8px 0 0;
-        }
-        /* When collapsed the header is the full block - round all four corners */
-        .directory:not(.expanded) .directory-header {
-            border-radius: 8px;
         }
         .directory-header:hover {
             background: #333;
@@ -1718,31 +1836,10 @@ def _generate_browse_html(photo_dirs, base_dir):
             color: #888;
             font-size: 0.9em;
         }
-        /* Removal count pill - hidden until the directory has photos queued for removal */
-        .directory-header .removal-badge {
-            display: none;
-            background: #e65100;
-            color: #fff;
-            padding: 1px 7px;
-            border-radius: 10px;
-            font-size: 0.78em;
-            font-weight: 600;
-            white-space: nowrap;
-        }
-        /* Orange border signals that at least one photo in this directory is queued */
-        /* box-shadow doesn't affect layout and respects border-radius, so only the
-           sticky header gets the orange ring, not the expanded card below it */
-        .directory.has-removals .directory-header {
-            box-shadow: 0 0 0 2px #e65100;
-        }
-        .directory.has-removals .directory-header .removal-badge {
-            display: inline-block;
-        }
         .directory-content {
             display: none;
             padding: 16px;
             background: #222;
-            border-radius: 0 0 8px 8px;
         }
         .directory.expanded .directory-content {
             display: block;
@@ -2066,9 +2163,8 @@ def _generate_browse_html(photo_dirs, base_dir):
     total_photos = sum(len(d['photos']) for d in photo_dirs)
     total_dirs = len(photo_dirs)
 
-    generated_ts = datetime.now().strftime('%d %b %Y, %H:%M')
     html_parts.append(f'''
-    <script>document.getElementById('total-stats').textContent = '{total_photos:,} photos in {total_dirs} directories  ·  generated: {generated_ts}';</script>
+    <script>document.getElementById('total-stats').textContent = '{total_photos:,} photos in {total_dirs} directories';</script>
     <div id="directories">
 ''')
 
@@ -2219,24 +2315,6 @@ def _generate_browse_html(photo_dirs, base_dir):
                 }
             });
             document.getElementById('storage-freed').textContent = formatBytes(totalBytes);
-            updateDirectoryStates();
-        }
-
-        /**
-         * Walk each directory element, count its selected-remove items, and
-         * update the has-removals class and removal-badge text accordingly.
-         * Called after every selection change so the orange border and count stay current.
-         */
-        function updateDirectoryStates() {
-            document.querySelectorAll('.directory').forEach(dir => {
-                const removalItems = dir.querySelectorAll('.photo-item.selected-remove');
-                const removalCount = removalItems.length;
-                dir.classList.toggle('has-removals', removalCount > 0);
-                const badge = dir.querySelector('.removal-badge');
-                if (badge) {
-                    badge.textContent = removalCount > 0 ? `${removalCount} marked` : '';
-                }
-            });
         }
 
         // Select all/deselect all for a time group
@@ -2291,28 +2369,16 @@ def _generate_browse_html(photo_dirs, base_dir):
                 return;
             }
 
-            // Sum file sizes for the header comment
-            let totalBytes = 0;
-            paths.forEach(path => {
-                const item = document.querySelector(`.photo-item[data-path="${CSS.escape(path)}"]`);
-                if (item && item.dataset.size) {
-                    totalBytes += parseInt(item.dataset.size, 10);
-                }
-            });
-
-            // Build script with standardized header
-            let script = '#!/bin/bash\\n';
-            script += '# Photo removal script\\n';
-            script += '# Generated:   ' + new Date().toISOString() + '\\n';
-            script += '# Files:       ' + paths.length + '\\n';
-            script += '# Space freed: ' + formatBytes(totalBytes) + '\\n';
-            script += '#\\n';
-            script += '# Run with: bash remove_photos.sh\\n';
-            script += '# (chmod +x is not required when invoking via bash directly)\\n';
-            script += '\\nset +e\\n\\n';
+            // Create shell script content
+            let script = '#!/bin/bash\\n# Photo removal script - generated ' + new Date().toISOString() + '\\n';
+            script += '# ' + paths.length + ' photos marked for removal\\n\\n';
+            script += 'set -e\\n\\n';
 
             paths.forEach(p => {
-                script += 'rm "' + p.replace(/"/g, '\\\\"') + '"\\n';
+                // SECURITY: single-quoted paths prevent $, backtick, and space injection.
+                // Embedded single quotes are escaped via the '\'' shell idiom.
+                const safePath = p.replace(/'/g, "'\\\\''" );
+                script += "rm '" + safePath + "'\\n";
             });
 
             // Download as file
@@ -2489,21 +2555,7 @@ def _generate_browse_html(photo_dirs, base_dir):
             else if (e.key === 'r' || e.key === 'R' || e.key === 'Delete' || e.key === 'Backspace') removeCurrentPhoto();
         });
 
-        /**
-         * Measure the fixed sticky-header height and write it into a CSS variable
-         * so that .directory-header sticky tops land just below the global header.
-         * Must be called on load and whenever the global header might resize.
-         */
-        function updateStickyOffset() {
-            const headerEl = document.querySelector('.sticky-header');
-            if (headerEl) {
-                document.documentElement.style.setProperty('--sticky-dir-top', headerEl.offsetHeight + 'px');
-            }
-        }
-
         // Initialize
-        updateStickyOffset();
-        window.addEventListener('resize', updateStickyOffset);
         applyState();
     </script>
 </body>
@@ -2530,7 +2582,6 @@ def _render_browse_directory(dir_info, base_dir):
             <div class="directory-header" onclick="toggleDirectory(this)">
                 <span class="toggle">▶</span>
                 <span class="path">{rel_path}</span>
-                <span class="removal-badge"></span>
                 <span class="count">{len(photos)} photos</span>
             </div>
             <div class="directory-content">
@@ -3087,11 +3138,6 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
             margin: 0;
             font-size: 1.3em;
         }
-        .sticky-header .generated-date {
-            color: #666;
-            font-size: 0.8em;
-            flex-shrink: 0;
-        }
         .nav-links {
             display: flex;
             gap: 20px;
@@ -3128,7 +3174,6 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
 <body>
     <div class="sticky-header">
         <h1>📸 Photo Triage Review</h1>
-        <span class="generated-date" id="review-generated-date"></span>
         <nav class="nav-links">
             <a href="#high-confidence-section" class="nav-link high-confidence">🎯 High-Confidence<span class="nav-count" id="nav-high-count">0</span></a>
             <a href="#needs-review-section" class="nav-link needs-review">⚠️ Needs Review<span class="nav-count" id="nav-review-count">0</span></a>
@@ -3136,10 +3181,6 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
         </nav>
     </div>
 ''']
-
-    # Inject the generated timestamp via JS (avoids converting the large static CSS block to an f-string)
-    _gen_ts = datetime.now().strftime('%d %b %Y, %H:%M')
-    html_parts.append(f'<script>document.getElementById("review-generated-date").textContent = "Generated: {_gen_ts}";</script>')
 
     # Summary section with blur score reference
     html_parts.append(f'''
@@ -3334,14 +3375,6 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
             });
         }
 
-        function formatBytes(bytes) {
-            if (bytes === 0) return '0 B';
-            const k = 1024;
-            const sizes = ['B', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-        }
-
         // Load and apply saved decisions on page load
         function loadDecisions() {
             const saved = localStorage.getItem(STORAGE_KEY);
@@ -3483,26 +3516,10 @@ def _generate_html_content(candidates, needs_review, duplicates, base_dir):
                 return;
             }
 
-            // Sum file sizes for the header comment
-            let totalBytes = 0;
-            toRemove.forEach(path => {
-                const card = document.querySelector(`.candidate-card[data-path="${CSS.escape(path)}"]`);
-                if (card && card.dataset.size) {
-                    totalBytes += parseInt(card.dataset.size, 10);
-                }
-            });
-
-            // Build script with standardized header
-            let script = '#!/bin/bash\\n';
-            script += '# Photo removal script\\n';
-            script += '# Generated:   ' + new Date().toISOString() + '\\n';
-            script += '# Files:       ' + toRemove.length + '\\n';
-            script += '# Space freed: ' + formatBytes(totalBytes) + '\\n';
-            script += '#\\n';
-            script += '# Run with: bash remove_photos.sh\\n';
-            script += '# (chmod +x is not required when invoking via bash directly)\\n';
-            script += '\\nset +e\\n\\n';
-            script += toRemove.map(p => 'rm "' + p + '"').join('\\n');
+            // SECURITY: single-quoted paths prevent $, backtick, and space injection.
+            // Embedded single quotes are escaped via the '\'' shell idiom.
+            const script = '#!/bin/bash\\n# Photo Triage - Files to Remove\\n# Generated: ' + new Date().toISOString() + '\\n\\n' +
+                toRemove.map(p => "rm '" + p.replace(/'/g, "'\\\\''" ) + "'").join('\\n');
 
             // Create download
             const blob = new Blob([script], { type: 'text/plain' });
@@ -3959,14 +3976,11 @@ def _render_candidate_card(item, base_dir, is_safe=True, preselect_remove=False,
     blur = item['blur']
     context = item['context']
 
-    # Get file modification date and size for context
+    # Get file modification date for context (human-readable format)
     try:
-        stat = path.stat()
-        mtime = stat.st_mtime
-        file_size = stat.st_size
+        mtime = path.stat().st_mtime
         date_str = datetime.fromtimestamp(mtime).strftime('%-d %B %Y')
     except OSError:
-        file_size = 0
         date_str = 'Unknown date'
 
     # Determine blur class
@@ -4015,7 +4029,7 @@ def _render_candidate_card(item, base_dir, is_safe=True, preselect_remove=False,
         hint_text = '⚠️ <strong>Review needed</strong> &mdash; No sharp alternative within 5min'
 
     return f'''
-        <div class="candidate-card" data-path="{path.resolve()}" data-card-id="{card_id}" data-size="{file_size}"{preselect_attr}{extra_attr_str}>
+        <div class="candidate-card" data-path="{path.resolve()}" data-card-id="{card_id}"{preselect_attr}{extra_attr_str}>
             <div class="candidate-header">
                 <div>
                     <strong>{path.name}</strong>
@@ -4112,42 +4126,55 @@ def _render_duplicate_group(dup_group, base_dir):
 
     For edited pairs (original + -edited version), auto-selects the original
     for removal since edited versions typically represent intentional improvements.
+
+    Keeper selection uses _sort_paths_by_keeper_priority: organized-folder
+    preference, EXIF date (not mtime), resolution (for perceptual groups),
+    then file size as tiebreaker. See BUG-1 and BUG-2 in NEXT.md.
     """
     import re
     paths = dup_group['paths']
     dup_type = dup_group.get('type', 'exact')
 
-    # Sort by modification time, newest first (the "keeper")
-    paths_with_mtime = []
+    # Collect per-file metadata BEFORE sorting so the sort key has everything.
+    # Gathering EXIF/dimensions here avoids a second pass and prevents the
+    # previously incorrect pattern of sorting by mtime then overwriting the
+    # keeper label after the fact.
+    file_meta = {}  # path -> {mtime, size, exif_date, dimensions}
     for p in paths:
         try:
-            mtime = p.stat().st_mtime
-            size = p.stat().st_size
-            paths_with_mtime.append((p, mtime, size))
+            stat = p.stat()
+            mtime = stat.st_mtime
+            size = stat.st_size
         except OSError:
-            paths_with_mtime.append((p, 0, 0))
+            mtime = 0
+            size = 0
 
-    paths_with_mtime.sort(key=lambda x: x[1], reverse=True)
+        file_meta[p] = {
+            'mtime': mtime,
+            'size': size,
+            'exif_date': get_exif_date(p),
+            'dimensions': get_image_dimensions(p),  # (w, h) or (0, 0)
+        }
+
+    # Sort using the priority chain: review-area penalty → resolution (perceptual
+    # only) → EXIF date → size → name length → mtime
+    sorted_paths = _sort_paths_by_keeper_priority(paths, dup_type=dup_type)
 
     # Detect edited pairs: find files ending in -edited and their originals
     edited_pattern = re.compile(r'^(.+)-edited(\.[^.]+)$', re.IGNORECASE)
     edited_files = set()
     original_files = set()
 
-    for p, _, _ in paths_with_mtime:
+    for p in sorted_paths:
         match = edited_pattern.match(p.name)
         if match:
             edited_files.add(p)
-            # Find the corresponding original
             base_name = match.group(1)
             ext = match.group(2)
             potential_original = p.parent / f'{base_name}{ext}'
-            if potential_original in [x[0] for x in paths_with_mtime]:
+            if potential_original in sorted_paths:
                 original_files.add(potential_original)
 
-    # Determine which files to auto-select for removal
-    # If this is an edited pair, select the original for removal (keep the edited)
-    # Otherwise, select all but the newest for removal
     has_edited_pair = bool(edited_files and original_files)
 
     # Build type badge
@@ -4157,24 +4184,25 @@ def _render_duplicate_group(dup_group, base_dir):
     else:
         type_badge = '<span style="background:#ff9800;color:white;padding:2px 8px;border-radius:4px;font-size:0.85em;margin-left:8px;">Perceptually similar</span>'
 
-    # Calculate blur scores and get EXIF dates for all files in group
+    # Calculate blur scores for all files in group
     blur_scores = {}
-    exif_dates = {}
-    for p, _, _ in paths_with_mtime:
+    for p in sorted_paths:
         try:
             blur_scores[p] = calculate_blur_score(p)
         except Exception:
             blur_scores[p] = None
 
-        # Get actual photo date from EXIF (not filesystem mtime)
-        exif_dates[p] = get_exif_date(p)
-
     photos_html = []
-    for i, (p, mtime, size) in enumerate(paths_with_mtime):
+    for i, p in enumerate(sorted_paths):
+        meta = file_meta[p]
+        mtime = meta['mtime']
+        size = meta['size']
+        exif_date = meta['exif_date']
+        dims = meta['dimensions']
+
         file_url = f'file://{p.resolve()}'
 
         # Use EXIF date if available, fall back to file mtime
-        exif_date = exif_dates.get(p)
         if exif_date:
             date_str = exif_date.strftime('%-d %B %Y')
         elif mtime:
@@ -4184,6 +4212,12 @@ def _render_duplicate_group(dup_group, base_dir):
 
         size_str = f'{size / 1024 / 1024:.1f} MB' if size else 'Unknown'
 
+        # Resolution display (shown for perceptual-similar groups; helps human verify choice)
+        if dims and dims[0] > 0:
+            res_str = f'{dims[0]}×{dims[1]}'
+        else:
+            res_str = ''
+
         try:
             rel_path = p.relative_to(base_dir)
         except ValueError:
@@ -4191,7 +4225,6 @@ def _render_duplicate_group(dup_group, base_dir):
 
         # Determine default selection
         if has_edited_pair:
-            # For edited pairs: keep the edited version, remove the original
             if p in original_files:
                 default_remove = True
                 label = '🗑️ Original (edited version exists)'
@@ -4199,13 +4232,20 @@ def _render_duplicate_group(dup_group, base_dir):
                 default_remove = False
                 label = '🏆 KEEP (edited)'
             else:
-                # Neither original nor edited - unusual, default to keep newest
                 default_remove = (i != 0)
-                label = '🏆 KEEP (newest)' if i == 0 else '🗑️ Duplicate'
+                label = '🏆 KEEP' if i == 0 else '🗑️ Duplicate'
         else:
-            # No edited pair - keep the newest
             default_remove = (i != 0)
-            label = '🏆 KEEP (newest)' if i == 0 else '🗑️ Duplicate'
+            # Label reflects the reason it was selected, for transparency
+            if i == 0:
+                if exif_date:
+                    label = '🏆 KEEP (earliest EXIF)'
+                elif dup_type == 'similar' and dims and dims[0] > 0:
+                    label = '🏆 KEEP (highest resolution)'
+                else:
+                    label = '🏆 KEEP'
+            else:
+                label = '🗑️ Duplicate'
 
         css_class = 'duplicate-item'
         if not default_remove:
@@ -4218,23 +4258,21 @@ def _render_duplicate_group(dup_group, base_dir):
         # Get blur score and format display
         blur = blur_scores.get(p)
         blur_display = ''
-        blur_class = ''
         blur_data = ''
         if blur is not None:
             blur_int = int(blur)
             blur_data = f'data-blur="{blur_int}"'
             if blur < 20:
-                blur_class = 'blur-very-blurry'
-                blur_display = f'<span class="{blur_class}" style="padding:2px 6px;border-radius:3px;">Blur: {blur_int}</span>'
+                blur_display = f'<span class="blur-very-blurry" style="padding:2px 6px;border-radius:3px;">Blur: {blur_int}</span>'
             elif blur < 40:
-                blur_class = 'blur-blurry'
-                blur_display = f'<span class="{blur_class}" style="padding:2px 6px;border-radius:3px;">Blur: {blur_int}</span>'
+                blur_display = f'<span class="blur-blurry" style="padding:2px 6px;border-radius:3px;">Blur: {blur_int}</span>'
             elif blur < 80:
-                blur_class = 'blur-soft'
-                blur_display = f'<span class="{blur_class}" style="padding:2px 6px;border-radius:3px;">Blur: {blur_int}</span>'
+                blur_display = f'<span class="blur-soft" style="padding:2px 6px;border-radius:3px;">Blur: {blur_int}</span>'
             else:
-                blur_class = 'blur-sharp'
-                blur_display = f'<span class="{blur_class}" style="padding:2px 6px;border-radius:3px;">Blur: {blur_int}</span>'
+                blur_display = f'<span class="blur-sharp" style="padding:2px 6px;border-radius:3px;">Blur: {blur_int}</span>'
+
+        # Resolution span (only shown when available — helps verify perceptual-similar decisions)
+        res_display = f'<span style="font-size:0.85em;color:#555;">{res_str}</span><br>' if res_str else ''
 
         photos_html.append(f'''
             <div class="{css_class}" data-path="{p.resolve()}" data-short-path="{rel_path}" data-is-original="{'true' if p in original_files else 'false'}" data-is-edited="{'true' if p in edited_files else 'false'}" {blur_data}>
@@ -4242,7 +4280,7 @@ def _render_duplicate_group(dup_group, base_dir):
                 <div class="duplicate-meta">
                     {label}<br>
                     {blur_display}<br>
-                    {date_str}<br>
+                    {res_display}{date_str}<br>
                     {size_str}<br>
                     <span style="font-size:0.9em; word-break:break-all;">{rel_path}</span>
                 </div>
@@ -4293,29 +4331,27 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Commands:
-  summary   Show issues grouped by folder
-  blurry    Find blurry photos with surrounding context
-  bursts    Detect and analyze photo bursts
-  review    Generate HTML review report with KEEP/REMOVE buttons
-  undo      Reverse previous moves (legacy)
+  summary        Show issues grouped by folder
+  blurry         Find blurry photos with surrounding context
+  bursts         Detect and analyze photo bursts
+  auto-triage    Move high-confidence blurry/duplicate photos to review folders
+  review-issues  Generate HTML review report for blurry/duplicate photos
+  browse         Browse ALL photos organized by directory with time grouping
+  undo           Reverse previous moves (legacy)
 
-Workflow:
-  1. Run 'review' to generate an interactive HTML report
-  2. Use KEEP/REMOVE buttons to mark decisions (saved to localStorage)
-  3. Click "Export Remove List" to download a shell script
-  4. Review and run the script to delete marked files
+Workflow (or use workflow_review.py to run all three in sequence):
+  1. Run 'auto-triage --dry-run' to populate blur cache and detect duplicates
+  2. Run 'review-issues --open' for the interactive blurry/duplicate report
+  3. Run 'browse --open' to browse all photos by directory
 
 Examples:
-  # Generate HTML review with 100 items per section (default)
-  python3 photo_triage.py review Organized_Photos/2018/ --open
+  # Full pipeline via workflow script
+  python3 workflow_review.py Organized_Photos/ --open
 
-  # Generate full review (no limit)
-  python3 photo_triage.py review Organized_Photos/ --open
-
-  # Quick summary of all issues by folder
+  # Or individually:
+  python3 photo_triage.py review-issues Organized_Photos/2018/ --open
+  python3 photo_triage.py browse Organized_Photos/ --open
   python3 photo_triage.py summary Organized_Photos/
-
-  # See blurry photos with their neighbors
   python3 photo_triage.py blurry Organized_Photos/2018/
         """
     )
@@ -4344,6 +4380,34 @@ Examples:
                                help='Seconds between burst photos')
     bursts_parser.add_argument('--no-recursive', action='store_true')
 
+    # Auto-triage command (automated file moves for high-confidence issues)
+    autotriage_parser = subparsers.add_parser(
+        'auto-triage',
+        help='Automatically move very blurry photos and exact duplicates to _TO_REVIEW_'
+    )
+    autotriage_parser.add_argument(
+        'directory', nargs='?', default=None,
+        help='Directory to triage (default: Organized_Photos/). '
+             'Use the full root — not a subdirectory — to catch cross-year duplicates.'
+    )
+    autotriage_parser.add_argument(
+        '--dry-run', action='store_true',
+        help='Show what would be moved without making changes'
+    )
+    autotriage_parser.add_argument(
+        '--symlinks', action='store_true',
+        help='Create symlinks in review folder instead of moving files '
+             '(originals stay in place for context during review)'
+    )
+    autotriage_parser.add_argument(
+        '--review-dir',
+        help='Base directory for review folders (auto-detected from input dir if not specified)'
+    )
+    autotriage_parser.add_argument(
+        '--manifest',
+        help='Path to manifest file for undo support (default: <review-dir>/.triage_manifest.json)'
+    )
+
     # Undo command (legacy - for undoing previous moves)
     undo_parser = subparsers.add_parser('undo', help='Undo previous triage moves (legacy)')
     undo_parser.add_argument('directory', help='Directory to find manifest (or use --review-dir)')
@@ -4357,7 +4421,7 @@ Examples:
     review_parser.add_argument('directory', nargs='?', default=None,
                                help='Directory to analyze (default: Organized_Photos/)')
     review_parser.add_argument('--output', '-o',
-                               help='Output path for HTML (default: <directory>/_review_issues.html)')
+                               help='Output path for HTML (default: _TO_REVIEW_/.TMP_review_issues.html)')
     review_parser.add_argument('--no-duplicates', action='store_true',
                                help='Skip duplicate detection')
     review_parser.add_argument('--open', action='store_true',
@@ -4368,7 +4432,7 @@ Examples:
     browse_parser.add_argument('directory', nargs='?', default=None,
                                help='Directory to browse (default: Organized_Photos/)')
     browse_parser.add_argument('--output', '-o',
-                               help='Output path for HTML (default: <directory>/_browse_all.html)')
+                               help='Output path for HTML (default: _TO_REVIEW_/.TMP_browse_all.html)')
     browse_parser.add_argument('--open', action='store_true',
                                help='Open report in browser after generation')
 
@@ -4486,6 +4550,33 @@ Examples:
             print(f"\n  ... and {len(bursts) - 10} more bursts")
 
         print(f"\n  Total deletable from bursts: {deletable_total}")
+
+    elif args.command == 'auto-triage':
+        directory = resolve_directory(args.directory)
+        review_dir = getattr(args, 'review_dir', None)
+        manifest_path = getattr(args, 'manifest', None)
+
+        results = auto_triage(
+            directory,
+            dry_run=args.dry_run,
+            manifest_path=manifest_path,
+            review_dir=review_dir,
+            use_symlinks=args.symlinks,
+        )
+
+        print(f"\n  Duplicates moved:  {results['duplicates_moved']}")
+        print(f"  Blurry moved:      {results['blurry_moved']}")
+        print(f"  Skipped:           {results['skipped']}")
+
+        if results['errors']:
+            print(f"  Errors:            {len(results['errors'])}")
+
+            for err in results['errors'][:10]:
+                print(f"    {err}")
+
+        if args.dry_run:
+            total = results['duplicates_moved'] + results['blurry_moved']
+            print(f"\n  Run without --dry-run to move {total} files.")
 
     elif args.command == 'undo':
         directory = resolve_directory(args.directory)

@@ -122,6 +122,28 @@ Examples:
         help="Show what would be done without making changes"
     )
 
+    parser.add_argument(
+        '--model-suffix',
+        metavar='SUFFIX',
+        default='',
+        help=(
+            "Camera model suffix to append to DSCN/DSC filenames (e.g. _S3500). "
+            "Overrides per-file EXIF auto-detection. Use only when all files in the "
+            "batch are from one camera with broken EXIF Model data; normally "
+            "auto-detection handles mixed-camera batches correctly."
+        ),
+    )
+
+    parser.add_argument(
+        '--person-suffix',
+        metavar='SUFFIX',
+        default='',
+        help=(
+            "Owner name suffix appended after the model suffix on every file "
+            "(e.g. _Clif produces DSCN1234_S3500_Clif.JPG)."
+        ),
+    )
+
     args = parser.parse_args()
 
     start_time = time.time()
@@ -179,6 +201,12 @@ Examples:
 
     if args.dry_run:
         organize_args.append("--dry-run")
+
+    if args.model_suffix:
+        organize_args += ["--model-suffix", args.model_suffix]
+
+    if args.person_suffix:
+        organize_args += ["--person-suffix", args.person_suffix]
 
     success, organize_time = run_script(
         str(script_dir / "organize_archive.py"),

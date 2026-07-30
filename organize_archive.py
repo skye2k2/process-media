@@ -47,6 +47,77 @@ SKIP_EXTENSIONS = {'.mts', '.m2ts'}
 # All media extensions we process
 MEDIA_EXTENSIONS = PHOTO_EXTENSIONS | VIDEO_EXTENSIONS
 
+# Filenames where camera-model suffix auto-detection applies.
+# DSCN and DSC cameras share overlapping counters across models, so the model
+# suffix is the only way to prevent collisions when ingesting from multiple
+# cameras at once. Other naming schemes (IMG_, VID_, PXL_) already embed a
+# date/time and are unambiguous.
+DSCN_STEM_PATTERN = re.compile(r'^DSC[N_]', re.IGNORECASE)
+
+
+# ============================================================================
+# FILENAME SUFFIX HELPERS
+# ============================================================================
+
+def extract_camera_model_suffix(model_str):
+    """
+    Derive a short camera-model suffix from an EXIF Model string.
+
+    Extracts the last space-separated token that starts with a letter followed
+    by digits: "COOLPIX S3500" -> "_S3500", "NIKON D3000" -> "_D3000".
+    Returns '' if the model string is empty or unparseable.
+
+    Args:
+        model_str: Raw value of the EXIF Model field, or ''
+
+    Returns:
+        str: e.g. '_S3500', '_S3100', '_D3000', or ''
+    """
+    if not model_str:
+        return ''
+
+    for token in reversed(model_str.strip().split()):
+        if re.match(r'^[A-Za-z]\d', token):
+            return f'_{token}'
+
+    return ''
+
+
+def compute_destination_filename(file_path, model_suffix='', person_suffix=''):
+    """
+    Compute the final destination filename with optional suffixes.
+
+    Suffix order is intentionally model-first, person-last:
+        DSCN1234_S3500_Clif.JPG
+
+    This mirrors the convention already in use in the archive (_Clif, _Nicole)
+    while adding the camera model as a technical disambiguator that sorts before
+    the human-readable owner label.
+
+    Args:
+        file_path:     Source Path whose stem and suffix are used as the base
+        model_suffix:  Camera model token, e.g. '_S3500' or '' (no suffix)
+        person_suffix: Owner name token, e.g. '_Clif' or '' (no suffix).
+                       Leading underscore is added automatically if absent.
+
+    Returns:
+        str: Final filename, e.g. 'DSCN1234_S3500_Clif.JPG'
+    """
+    if not model_suffix and not person_suffix:
+        return file_path.name
+
+    stem = file_path.stem
+
+    if model_suffix:
+        stem += model_suffix
+
+    if person_suffix:
+        # Normalize: ensure exactly one leading underscore
+        ps = person_suffix if person_suffix.startswith('_') else f'_{person_suffix}'
+        stem += ps
+
+    return f'{stem}{file_path.suffix}'
+
 
 # ============================================================================
 # DATE EXTRACTION
@@ -133,12 +204,17 @@ def get_date_from_exif(file_path):
 
 def batch_extract_dates(file_paths, chunk_size=1000):
     """
-    Extract creation dates from a list of files in batched exiftool invocations.
+    Extract creation dates (and camera model suffixes) from a list of files in
+    batched exiftool invocations.
 
     Dramatically faster than the per-file get_date_from_exif() for files that
     lack embedded filename dates (e.g., DSC_XXXX.JPG from DSLRs). A single
     exiftool process reading 500 files is orders of magnitude cheaper than 500
     individual process spawns.
+
+    The Model field is fetched in the same pass at no meaningful extra cost.
+    Model suffixes are only populated for files matching DSCN_STEM_PATTERN;
+    other naming schemes (IMG_, VID_) are already unambiguous by timestamp.
 
     Files are chunked to avoid OS argument-list length limits. Progress is
     logged when the total exceeds one chunk.
@@ -148,14 +224,17 @@ def batch_extract_dates(file_paths, chunk_size=1000):
         chunk_size: Max files per exiftool invocation (default 1000)
 
     Returns:
-        dict: {Path: datetime} for files where a valid date was found.
-              Files with no parseable date are absent from the result.
+        tuple: ({Path: datetime}, {Path: model_suffix_str})
+               date_cache:  files where a valid date was found
+               model_cache: files where a model suffix was derived
+               Files with no parseable value are absent from each dict.
     """
     date_cache = {}
+    model_cache = {}
     file_list = list(file_paths)
 
     if not file_list:
-        return date_cache
+        return date_cache, model_cache
 
     total = len(file_list)
     processed = 0
@@ -170,6 +249,7 @@ def batch_extract_dates(file_paths, chunk_size=1000):
                     '-DateTimeOriginal',
                     '-CreateDate',
                     '-MediaCreateDate',
+                    '-Model',
                 ] + [str(p) for p in chunk],
                 capture_output=True,
                 text=True,
@@ -202,6 +282,14 @@ def batch_extract_dates(file_paths, chunk_size=1000):
                     except ValueError:
                         continue
 
+                # Derive model suffix only for DSCN/DSC filenames — other
+                # naming schemes are already unambiguous by timestamp.
+                if DSCN_STEM_PATTERN.match(source_file.stem):
+                    suffix = extract_camera_model_suffix(record.get('Model', '') or '')
+
+                    if suffix:
+                        model_cache[source_file] = suffix
+
         except (json.JSONDecodeError, Exception) as err:
             print(f"  WARNING: Batch EXIF extraction failed for chunk starting at {chunk_start}: {err}")
 
@@ -210,7 +298,7 @@ def batch_extract_dates(file_paths, chunk_size=1000):
         if total > chunk_size:
             print(f"  EXIF batch progress: {processed}/{total} files...")
 
-    return date_cache
+    return date_cache, model_cache
 
 
 def get_creation_date(file_path, exif_cache=None):
@@ -362,19 +450,21 @@ def stamp_filesystem_dates(file_path, creation_date):
         print(f"    WARNING: Could not stamp filesystem dates on {file_path.name}: {e}")
 
 
-def move_file(file_path, dest_folder, dry_run=False):
+def move_file(file_path, dest_folder, dry_run=False, dest_filename=None):
     """
     Move file to destination folder.
 
     Args:
-        file_path: Source file path
-        dest_folder: Destination directory
-        dry_run: If True, don't actually move
+        file_path:     Source file path
+        dest_folder:   Destination directory
+        dry_run:       If True, don't actually move
+        dest_filename: Override the destination filename (e.g. with model/person
+                       suffixes already appended). Defaults to source filename.
 
     Returns:
         Path: Final destination path, or None if failed
     """
-    filename = file_path.name
+    filename = dest_filename or file_path.name
     dest_path = dest_folder / filename
 
     if dry_run:
@@ -386,14 +476,15 @@ def move_file(file_path, dest_folder, dry_run=False):
     try:
         dest_folder.mkdir(parents=True, exist_ok=True)
 
-        # Handle collision
+        # Handle collision: append a numeric counter to the stem of the
+        # already-suffixed filename (e.g. DSCN1234_S3500_Clif_2.JPG)
         if dest_path.exists():
-            stem = file_path.stem
-            ext = file_path.suffix
+            dest_stem = Path(filename).stem
+            dest_ext = Path(filename).suffix
             counter = 1
 
             while dest_path.exists():
-                new_name = f"{stem}_{counter}{ext}"
+                new_name = f"{dest_stem}_{counter}{dest_ext}"
                 dest_path = dest_folder / new_name
                 counter += 1
 
@@ -560,7 +651,14 @@ def move_project_folder(folder_path, file_index, dry_run=False):
 # MAIN PROCESSING
 # ============================================================================
 
-def process_file(file_path, detector, dry_run=False, exif_cache=None):
+def process_file(
+    file_path,
+    detector,
+    dry_run=False,
+    exif_cache=None,
+    model_suffix_map=None,
+    person_suffix='',
+):
     """
     Process a single media file using smart duplicate detection.
 
@@ -571,11 +669,15 @@ def process_file(file_path, detector, dry_run=False, exif_cache=None):
     - Quality analysis for size mismatches
 
     Args:
-        file_path: Path to the media file
-        detector: DuplicateDetector instance
-        dry_run: If True, don't make changes
-        exif_cache: Optional {Path: datetime} dict from batch_extract_dates,
-                    avoiding per-file subprocess calls for EXIF-dated files
+        file_path:        Path to the media file
+        detector:         DuplicateDetector instance
+        dry_run:          If True, don't make changes
+        exif_cache:       Optional {Path: datetime} from batch_extract_dates
+        model_suffix_map: Optional {Path: str} of per-file model suffixes
+                          (e.g. {'DSCN1234.JPG': '_S3500'}). An entry here
+                          overrides any CLI --model-suffix for this file.
+        person_suffix:    Optional owner suffix to append last (e.g. '_Clif').
+                          Applied to ALL files when set.
 
     Returns:
         tuple: (result_code, action_taken)
@@ -650,8 +752,13 @@ def process_file(file_path, detector, dry_run=False, exif_cache=None):
     is_video = is_video_file(file_path)
     dest_folder = get_destination_folder(creation_date, is_video)
 
-    # Move file
-    result = move_file(file_path, dest_folder, dry_run)
+    # Compute destination filename with model and person suffixes.
+    # model_suffix_map holds per-file auto-detected suffixes; a CLI override
+    # would have been pre-loaded into the map by the caller.
+    model_suffix = (model_suffix_map or {}).get(file_path, '')
+    dest_filename = compute_destination_filename(file_path, model_suffix, person_suffix)
+
+    result = move_file(file_path, dest_folder, dry_run, dest_filename=dest_filename)
 
     if result:
         if not dry_run:
@@ -686,6 +793,29 @@ Examples:
         '--dry-run',
         action='store_true',
         help="Show what would be done without making changes"
+    )
+
+    parser.add_argument(
+        '--model-suffix',
+        metavar='SUFFIX',
+        default='',
+        help=(
+            "Camera model suffix to append to DSCN/DSC filenames "
+            "(e.g. _S3500). Overrides per-file EXIF auto-detection. "
+            "Use when all files in the batch are from a single known camera "
+            "with broken EXIF Model data."
+        ),
+    )
+
+    parser.add_argument(
+        '--person-suffix',
+        metavar='SUFFIX',
+        default='',
+        help=(
+            "Owner name suffix appended to every filename after the model "
+            "suffix (e.g. _Clif produces DSCN1234_S3500_Clif.JPG). "
+            "Applied to all files in the batch."
+        ),
     )
 
     args = parser.parse_args()
@@ -769,18 +899,41 @@ Examples:
     print(f"\nFound {len(project_folders)} project folders")
     print(f"Found {len(loose_files)} loose media files")
 
-    # Pre-fetch EXIF dates for all loose files that lack a parseable filename
-    # date, collapsing N per-file subprocess calls into one batched invocation.
-    # Files with filename dates skip this entirely and are not included.
+    # Pre-fetch EXIF dates (and camera model suffixes) for all loose files that
+    # lack a parseable filename date, collapsing N per-file subprocess calls
+    # into one batched invocation. Files with filename dates are excluded from
+    # the date batch but still need model detection if they match DSCN_STEM_PATTERN.
     files_needing_exif = [f for f in loose_files if not extract_date_from_filename(f.name)]
     exif_cache = {}
+    model_cache = {}
 
     if files_needing_exif:
         print(f"\n  Pre-fetching EXIF dates for {len(files_needing_exif)} files (no filename date)...")
-        exif_cache = batch_extract_dates(files_needing_exif)
+        exif_cache, model_cache = batch_extract_dates(files_needing_exif)
         hit_count = len(exif_cache)
         miss_count = len(files_needing_exif) - hit_count
         print(f"  EXIF batch complete: {hit_count} dates found, {miss_count} will fall back to mtime")
+
+    # If --model-suffix was given explicitly, it wins over auto-detection for
+    # every DSCN/DSC file in the batch. Build a unified model_suffix_map that
+    # process_file can use without needing to know which source the suffix came
+    # from. Non-DSCN files are unaffected regardless of --model-suffix.
+    model_suffix_override = args.model_suffix
+
+    if model_suffix_override:
+        # Normalize: ensure leading underscore
+        if not model_suffix_override.startswith('_'):
+            model_suffix_override = f'_{model_suffix_override}'
+
+        model_suffix_map = {
+            f: model_suffix_override
+            for f in loose_files
+            if DSCN_STEM_PATTERN.match(f.stem)
+        }
+    else:
+        model_suffix_map = model_cache
+
+    person_suffix = args.person_suffix
 
     # Process project folders first
     project_moved = 0
@@ -812,7 +965,14 @@ Examples:
         print("Processing loose files...")
 
         for file_path in sorted(loose_files, key=lambda p: p.name):
-            result, action = process_file(file_path, detector, args.dry_run, exif_cache=exif_cache)
+            result, action = process_file(
+                file_path,
+                detector,
+                args.dry_run,
+                exif_cache=exif_cache,
+                model_suffix_map=model_suffix_map,
+                person_suffix=person_suffix,
+            )
 
             if result == 'moved':
                 moved_count += 1

@@ -25,8 +25,10 @@ For workflow orchestration, see workflow_reprocess.py.
 """
 
 import os
+import re
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from media_utils import AVCHD_EXTENSIONS, MONTH_FOLDER_NAMES
@@ -83,6 +85,10 @@ SKIP_CODECS = {
     'av1',
     'vp9', 'vp8',
 }
+
+# Matches Nikon DSCN/DSC_ stems — these files receive datetime-prefix renaming
+# on conversion, mirroring the YYYYMMDD_HHMMSS_CAM convention used for camcorder files.
+DSCN_STEM_PATTERN = re.compile(r'^DSC[N_]', re.IGNORECASE)
 
 
 # ============================================================================
@@ -287,6 +293,61 @@ def verify_conversion(original_path, converted_path, duration_tolerance=1.0):
     return True, "conversion verified"
 
 
+def get_video_creation_date(file_path):
+    """
+    Extract the creation date from a video file for use in output filename generation.
+
+    Tries exiftool first (DateTimeOriginal, then CreateDate), then falls back
+    to the file's filesystem modification time. Used to generate the
+    YYYYMMDD_HHMMSS_ prefix for DSCN files on conversion.
+
+    Args:
+        file_path: Path to the video file
+
+    Returns:
+        datetime: Creation date, or None if not determinable
+    """
+    try:
+        result = subprocess.run(
+            [
+                'exiftool', '-m', '-q',
+                '-DateTimeOriginal', '-CreateDate',
+                '-d', '%Y:%m:%d %H:%M:%S',
+                str(file_path)
+            ],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if ':' not in line:
+                    continue
+
+                parts = line.split(':', 1)
+
+                if len(parts) != 2:
+                    continue
+
+                value = parts[1].strip()
+
+                try:
+                    return datetime.strptime(value, '%Y:%m:%d %H:%M:%S')
+                except ValueError:
+                    continue
+
+    except Exception:
+        pass
+
+    # Fall back to filesystem mtime if exiftool is unavailable or yields no date
+    try:
+        mtime = file_path.stat().st_mtime
+        return datetime.fromtimestamp(mtime)
+    except Exception:
+        return None
+
+
 # ============================================================================
 # SCANNING
 # ============================================================================
@@ -390,9 +451,25 @@ def process_legacy_videos(dry_run=True, check_all_codecs=False, delete_original=
         print("\n*** DRY RUN MODE - No changes will be made ***\n")
 
     for file_path, reason in legacy_videos:
-        # Determine output path - always use .h265.mp4 to indicate codec in filename
-        # This makes it easy to identify converted files without checking metadata
-        output_path = file_path.with_suffix('.h265.mp4')
+        # Determine output path.
+        # DSCN/DSC_ files (Nikon cameras) get a datetime prefix to match the
+        # YYYYMMDD_HHMMSS_CAM convention used for camcorder files, while
+        # preserving the informative stem (e.g., DSCN5075_S3500).
+        # All other legacy files keep the original stem with .h265.mp4 appended.
+        stem = file_path.stem
+
+        if DSCN_STEM_PATTERN.match(stem):
+            creation_date = get_video_creation_date(file_path)
+
+            if creation_date:
+                date_prefix = creation_date.strftime('%Y%m%d_%H%M%S')
+                output_path = file_path.parent / f"{date_prefix}_{stem}.h265.mp4"
+            else:
+                print(f"\n  WARNING: Could not determine date for {file_path.name}; using original stem")
+                output_path = file_path.with_suffix('.h265.mp4')
+
+        else:
+            output_path = file_path.with_suffix('.h265.mp4')
 
         # Handle case where output already exists
         if output_path.exists():
@@ -417,7 +494,7 @@ def process_legacy_videos(dry_run=True, check_all_codecs=False, delete_original=
         success = convert_to_h265(file_path, output_path, dry_run=False)
 
         if not success:
-            print(f"    FAILED: Conversion error")
+            print("    FAILED: Conversion error")
             stats['failed'] += 1
 
             # Clean up partial output

@@ -246,6 +246,7 @@ process-media/
 ├── conversion_index.py             (Video: persistent deduplication)
 ├── create_event_folders.py         (Reprocess: sort holiday/birthday photos into event folders)
 ├── photo_triage.py                 (Triage: batch blurry/duplicate management)
+├── workflow_review.py              (Triage: orchestrates blur + dupes + HTML reports)
 ├── convert_legacy.py               (Reprocess: legacy format conversion logic)
 ├── duplicate_detector.py           (Archive: smart duplicate detection with caching)
 ├── fix_fragmented_metadata.py      (Takeout: reunite fractured projects)
@@ -357,19 +358,78 @@ python3 workflow_archive.py --dry-run
 # Process from custom directory
 python3 workflow_archive.py /path/to/archive
 
+# Append owner name to every filename (model suffix added automatically)
+python3 workflow_archive.py --person-suffix _Clif
+
+# Override camera model suffix for entire batch (use only if EXIF Model is broken)
+python3 workflow_archive.py --model-suffix _S3500
+
 # Run the organizer directly (without workflow wrapper)
 python3 organize_archive.py --dry-run
+python3 organize_archive.py TO_PROCESS/NIKON --person-suffix _Clif
 ```
 
-### Verification Tool:
+### Camera Model Suffix Auto-Detection:
 
-Before importing, you can verify which NAS files are missing from your organized directories:
+When ingesting from a camera that uses `DSCN_XXXX.JPG` naming (Nikon CoolPix, etc.),
+`organize_archive.py` reads the EXIF `Model` field for each file and appends a short
+model token to the filename stem before moving it:
+
+```
+DSCN2542.JPG  (COOLPIX S3500)  →  DSCN2542_S3500.JPG
+DSCN2542.JPG  (COOLPIX S3100)  →  DSCN2542_S3100.JPG
+```
+
+This prevents filename collisions when two cameras share an overlapping counter range.
+Suffix order when both model and person are present: `DSCN2542_S3500_Clif.JPG`.
+
+Auto-detection only applies to `DSCN`/`DSC`-prefixed files. `IMG_`, `VID_`, and `PXL_`
+files already embed a timestamp and are unambiguous.
+
+### Pre-Ingestion Reconciliation Tool:
+
+Before importing a large NAS archive, use `reconcile_nikon_archive.py` to get a
+read-only preview of what would happen — no files are touched:
 
 ```bash
-python3 check_nas_archive.py /Volumes/NAS/Photos/Archive
+# Fast first pass (skips byte-level MD5 comparison)
+python3 reconcile_nikon_archive.py /Volumes/photosync/NIKON --no-md5
+
+# Full pass with MD5 (slower but catches exact duplicates)
+python3 reconcile_nikon_archive.py /Volumes/photosync/NIKON
+
+# Re-display previous run without re-scanning
+python3 reconcile_nikon_archive.py /Volumes/photosync/NIKON --cache-only
 ```
 
-This scans the NAS archive and reports which files don't exist in `Organized_Photos/` or `Organized_Videos/`.
+Output categories:
+- `EXACT_MATCH` — byte-identical copy already in archive; safe to skip
+- `DATE_SIZE_MATCH` — high-confidence duplicate by EXIF date + file size
+- `DEST_COLLISION` — would land in the same folder/filename as an existing file
+  with different content (requires manual review before ingesting)
+- `NEW_CONTENT` — not yet in archive; ready to ingest
+- `NO_EXIF` — no date available; use `apply_date_from_neighbor.py` to fix
+
+### Fixing NO_EXIF Files:
+
+Files in a cluster with no EXIF date (typically edited copies of deleted originals)
+can be stamped with the date of their nearest DSCN-numbered predecessor:
+
+```bash
+# Dry run to verify what dates will be applied
+python3 apply_date_from_neighbor.py \
+    --reconcile-cache .reconcile_cache.json \
+    --dry-run --verbose
+
+# Apply (borrows date from nearest preceding file with valid EXIF)
+python3 apply_date_from_neighbor.py \
+    --reconcile-cache .reconcile_cache.json
+
+# Override with a specific date when the neighbor date is known-wrong
+python3 apply_date_from_neighbor.py \
+    --reconcile-cache .reconcile_cache.json \
+    --date 20190601
+```
 
 ---
 
@@ -696,14 +756,13 @@ pip install pillow-heif  # For HEIC/HEIF support (Apple photos)
 ### Quick Start:
 
 ```bash
-# 1. Pre-populate the blur cache (one-time, ~15-20 min for 30k photos)
-python3 photo_triage.py auto-triage --dry-run
+# Run the full review pipeline (blur cache + review report + browse report)
+python3 workflow_review.py Organized_Photos/ --open
 
-# 2. Generate HTML review report
-python3 photo_triage.py review Organized_Photos/ --open
-
-# 3. After reviewing, run auto-triage to move files
-python3 photo_triage.py auto-triage --symlink
+# Or run individual steps manually:
+python3 photo_triage.py auto-triage --dry-run        # Populate blur cache + detect dupes
+python3 photo_triage.py review-issues --open          # Blurry/duplicate HTML report
+python3 photo_triage.py browse --open                 # All-photos browsable HTML
 ```
 
 ### Commands:
@@ -714,34 +773,35 @@ python3 photo_triage.py auto-triage --symlink
 | `blurry` | Find blurry photos with surrounding context |
 | `bursts` | Detect photo bursts (rapid sequences) |
 | `auto-triage` | Move high-confidence issues to review folders |
-| `review` | Generate HTML report for visual review |
+| `review-issues` | Generate HTML report for blurry/duplicate review |
+| `browse` | Generate HTML report browsing ALL photos by directory |
 | `undo` | Restore files moved by auto-triage |
 
-### HTML Review Report:
+### HTML Reports:
 
-The `review` command generates a self-contained HTML report showing:
+Two HTML reports are available:
 
-- **Safe to delete**: Very blurry photos with sharp alternatives nearby
-- **Needs manual review**: Blurry photos without clear alternatives
-- **Duplicates**: Exact and perceptually similar groups (original/edited pairs) with recommended keeper
-
-**Deduplication**: Photos that appear in duplicate groups are automatically filtered from the blurry review sections to avoid redundant entries. Review duplicates once in the Duplicates section.
-
-Each photo card shows:
-- The candidate photo alongside its context (surrounding photos by timestamp)
-- Blur scores for comparison
-- Human-readable date (e.g., "31 October 2005")
+**`review-issues`** — Interactive report for blurry and duplicate photos:
+- Safe-to-delete blurry photos (with sharp alternatives nearby)
+- Photos needing manual review (blurry, no clear alternative)
+- Duplicate groups (exact and perceptual) with recommended keeper
+- Each card shows the photo alongside context neighbors, blur scores, and dates
 - Click any image to view full-size (Escape to close)
 
+**`browse`** — All photos organized by directory with time grouping:
+- Every photo in every folder, for visual scanning
+- Collapsible directory sections
+
 ```bash
-# Generate report for specific year
-python3 photo_triage.py review Organized_Photos/2020 --open
+# Generate both reports at once (recommended)
+python3 workflow_review.py Organized_Photos/ --open
+
+# Or individually:
+python3 photo_triage.py review-issues Organized_Photos/2020 --open
+python3 photo_triage.py browse Organized_Photos/ --open
 
 # Skip duplicate scanning (faster)
-python3 photo_triage.py review Organized_Photos/ --no-duplicates
-
-# Custom output location
-python3 photo_triage.py review Organized_Photos/ --output ~/Desktop/review.html
+python3 photo_triage.py review-issues Organized_Photos/ --no-duplicates
 ```
 
 ### Auto-Triage Workflow:
@@ -796,20 +856,17 @@ python3 photo_triage.py undo Organized_Photos/
 ### Example Workflow:
 
 ```bash
-# 1. One-time cache warm-up
-python3 photo_triage.py auto-triage --dry-run
+# 1. Generate review and browse reports (also warms blur cache)
+python3 workflow_review.py Organized_Photos/ --open
 
-# 2. Generate visual review
-python3 photo_triage.py review Organized_Photos/ --open
+# 2. Review in browser, note which photos to delete
 
-# 3. Review in browser, note which photos to delete
+# 3. Run triage with symlinks to stage removals
+python3 photo_triage.py auto-triage --symlinks
 
-# 4. Run triage with symlinks
-python3 photo_triage.py auto-triage --symlink
+# 4. Delete confirmed bad photos from their original locations
 
-# 5. Delete confirmed bad photos from their original locations
-
-# 6. Clean up empty symlinks in _TO_REVIEW_/
+# 5. Clean up empty symlinks in _TO_REVIEW_/
 find Organized_Photos/_TO_REVIEW_ -type l ! -exec test -e {} \; -delete
 ```
 
@@ -820,45 +877,26 @@ find Organized_Photos/_TO_REVIEW_ -type l ! -exec test -e {} \; -delete
 ### NEXT THOUGHTS, IDEAS, CONSIDERATIONS, AND PROMPTS:
 
 
-we need to add the ability to handle the NIKON DSCN-prefixed photos, some of which we have subsequently renamed and moved into various project folders, or ended up in TO_REVIEW, and then copy over and process the NIKON SD card (and determine if any of those are missing, as well)
-
-TODO: identical duplicates are still not being called out as such. it would be good to figure out why
-
-TODO: the duplicate resolver should also take resolution into account, because often nicole gets photos thrown at her through text, and then gets the originals, and the smaller photos consistently calculate out to a higher blur score. we want to keep the one with the higher resolution for perceptually similar photos. commonly it is a larger filesize, but if two photos have a very high ssim, the same resolution, and different filesizes, the smaller should probably win
-
-TODO: the duplicate resolver prioritizes "newer" copies or edits. many times, this appears be a rounding difference, as the timestamps differ by a single microsecond. and, when shared with someone, that folder sharing date is always *after* the photo time, so the shared photo in an odd folder is what it preselected for keeping, which is less than ideal.
-
-it would probably be better to just run a check across all takeout shared directories to see if all photos exist in their proper places, and then just remove it, because this caused a bunch of drama
-
 TODO:
 
+- BUG: identical duplicates are still not being called out as such. it would be good to figure out why
+- BUG: the duplicate resolver prioritizes "newer" copies or edits. many times, this appears be a rounding difference, as the timestamps differ by a single microsecond. and, when shared with someone, that folder sharing date is always *after* the photo time, so the shared photo in an odd folder is what it preselected for keeping, which is less than ideal.
+
+- it might be better to just run a check across all takeout shared directories when detected to see if all photos exist in their proper places, and then just remove those directories, because this has caused a bunch of cleanup drama
+- we might need to add the ability to handle the NIKON DSCN-prefixed photos, some of which we have subsequently renamed and moved into various project folders, or ended up in TO_REVIEW, and then copy over and process the NIKON SD card (and determine if any of those are missing, as well)
+- the duplicate resolver should also take resolution into account, because often nicole gets photos thrown at her through text, and then gets the originals, and the smaller photos consistently calculate out to a higher blur score. we want to keep the one with the higher resolution for perceptually similar photos. commonly it is a larger filesize, but if two photos have a very high ssim, the same resolution, and different filesizes, the smaller should probably win
 - find our missing home movies are (2013-2016, 2017-2019). check archives BEFORE re-syncing with our newest data
-- find our old dvd we made of our first year of marriage and college together, which should have our photos, as well, especially the ones from our first and second little nikon pocket cameras
-- find and add our wedding photo dvd in its entirety as an event
+- find our old dvd we made of our first year of marriage and college together, which should have our photos, as well, especially the ones from our first and second little nikon pocket cameras, to be able to add, in addition to our wedding photo dvd in its entirety as an event
+- i think i would like to add a test directory to this project containing each typical and problem file we are handling, to be able to exercise the code fully in a closed system of tests that cover each base and edge case rather than spend half an hour re-running each time just to see if the new reprocessing worked.
 
-DON'T FREAKING FORGET TO FIGURE OUT HOW TO SYNC OUR OLD, HIGH-QUALITY GOOGLE PHOTO EXPORT WITH THIS STUFF AND SEE IF THERE'S A DIFFERENCE.
-
-
-i think i would like to add a test directory containing each typical and problem file we are handling, to be able to exercise the code fully in a closed system of tests that cover each base and edge case rather than spend half an hour re-running each time
-
-THEN DO THE SAME KIND OF PROCESSING ACROSS OUR OLD PHOTOSYNCED DATA, AND SEE IF WE HAVE EVERYTHING
-
-THEN DO THE SAME THING FOR OUR LIFE DVD FROM OUR FIRST YEAR, OR SO, AND OUR WEDDING DVD, AND NICOLE'S LOCAL HARD DRIVE, AND OUR VIDEO RECORDING CHIPS, RENAMING INTELLIGENTLY WITH DATESTAMPS, INSTEAD OF ARBITRARY NUMBERS,
-
-THEN ADD TAGS FOR PEOPLE AND EVENTS?
-
-
-WE ALSO NEED TO FIGURE OUT HOW BEST TO RESOLVE THE HUNDREDS OF -EDITED FILES, MANY OF WHICH DON'T ACTUALLY MAKE A DRAMATIC ENOUGH IMPROVEMENT TO MERIT THE SPACE, INSTEAD OF KEEPING THE ORIGINAL, AND IF WE WANT TO DO SOMETHING WITH IT, EDITING WITH A MODERN PHOTO EDITOR FOR BETTER RESULTS.
-
-POTENTIAL ISSUE: how do we handle reprocessing? if we went through and allowed most of the high-confidence and duplicate deletions, and only made it partway through the one left over for painstaking manual review, how do we avoid dealing with ones we explicitly marked as keep all over again the next runthrough? are we adding the KEEP designation to the cache? are there other potential issues?
-
-POTENTIAL FOR QUALITY CONFLICTS: oh, and there is also the possibility of duplicate photos that may or may not have the same name, but have the same data, just at a smaller resolution (history: previous google takeout export at full-resolution, filesize reduction for cloud-based files, then a subsequent google takeout which includes the reduced-size copies of originals)
-
-^^^ SEE THE ORIGINAL PHOTOSYNC FILES, AND IF THEY REALLY ARE HIGHER-RESOLUTION, OR IF ANY FROM ANYWHEN ACTUALLY MATCH THAT, BEFORE BUILDING IN MORE COMPLEXITY
-
-
-what is the best way to re-sync with google photos? or do we just delete everything nonessential, and call it good? or can we keep track of the removed files and build a tool to interact with google photos to remove them in the cloud, as well?
-
-and then we need all of this to work with pre-existing data, so that we don't have to transfer hundreds of gigabytes of nas data to a local directory to be able to sort, deduplicate, compare, and the like, going forward. for the future, we want a very smooth process of 1) add the files to the processing folder, and 2) run the import (and analyze) script. i never want to do a full takeout, again (because we have gone through and removed hundreds and thousands of blurry, unnecessary, or duplicate photos), just grab the last couple of months, and boom. ensure that the removal scripts will work correctly with nas-based links. smash together the cache removal, recache, and re-browse functionality.
+- DON'T FORGET TO FIGURE OUT HOW TO SYNC OUR OLD THEORETICALLY HIGH-QUALITY GOOGLE PHOTO EXPORT WITH THIS STUFF AND SEE IF THERE'S A DIFFERENCE.
+   - POTENTIAL FOR QUALITY CONFLICTS: oh, and there is also the possibility of duplicate photos that may or may not have the same name, but have the same data, just at a smaller resolution (history: previous google takeout export at full-resolution, filesize reduction for cloud-based files, then a subsequent google takeout which includes the reduced-size copies of originals)
+- THEN DO THE SAME KIND OF PROCESSING ACROSS OUR OLD PHOTOSYNCED DATA (HAD AN APP AT ONE POINT THAT COPIED ORIGINAL PHOTOS TO THE NAS FOR REDUNDANCY), AND SEE IF WE HAVE EVERYTHING.
+   - ^^^ SEE THE ORIGINAL PHOTOSYNC FILES FROM THE PREVIOUS ARCHIVE, AND IF THEY REALLY ARE HIGHER-RESOLUTION, OR IF ANY FROM ANYWHEN ACTUALLY MATCH THAT, BEFORE BUILDING IN MORE COMPLEXITY
+- FIGURE OUT HOW BEST TO ADD TAGS FOR BEST OF'S, PEOPLE AND EVENTS?
+- WE ALSO NEED TO FIGURE OUT HOW BEST TO RESOLVE THE HUNDREDS OF -EDITED FILES, MANY OF WHICH DON'T ACTUALLY MAKE A DRAMATIC ENOUGH IMPROVEMENT TO MERIT THE SPACE, INSTEAD OF KEEPING THE ORIGINAL, AND IF WE WANT TO DO SOMETHING WITH IT, EDITING WITH MODERN PHOTO PROCESSING FOR BETTER RESULTS.
+- POTENTIAL ISSUE: how do we handle reprocessing? if we went through and allowed most of the high-confidence and duplicate deletions, and only made it partway through the one left over for painstaking manual review, how do we avoid dealing with ones we explicitly marked as keep all over again the next runthrough? are we adding the KEEP designation to the cache? are there other potential issues?
+- what is the best way to potentially re-sync with google photos, so that we can _actually_ save space? or do we just delete everything nonessential, and call it good? or can we keep track of the removed files and build a tool to interact with google photos to remove them in the cloud, as well? i have kept each of the removal scripts, so far, which has output that could potentially be used toward this end.
+- and then we need all of this to work with pre-existing data on our nas, so that we don't have to transfer hundreds of gigabytes of nas data to a local directory to be able to sort, deduplicate, compare, and the like, going forward. for the future, we want a very smooth process of 1) add the files to the processing folder, and 2) run the import (and analyze) script. i never want to do a full takeout, again (because we have gone through and removed thousands of blurry, unnecessary, or duplicate photos), just grab the last couple of months, and boom. ensure that the removal scripts will work correctly with nas-based links. smash together the cache removal, recache, and re-browse functionality.
 
 -->
