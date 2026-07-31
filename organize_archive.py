@@ -30,6 +30,7 @@ from pathlib import Path
 
 from build_file_index import build_file_index
 from duplicate_detector import DuplicateDetector, MatchConfidence
+from removal_history import RemovalHistory
 from media_utils import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS, MONTH_NAMES
 
 # ============================================================================
@@ -606,6 +607,7 @@ def process_file(
     exif_cache=None,
     model_suffix_map=None,
     person_suffix='',
+    removal_history=None,
 ):
     """
     Process a single media file using smart duplicate detection.
@@ -640,6 +642,14 @@ def process_file(
     if not creation_date:
         print(f"    WARNING: Could not determine date, skipping")
         return 'skipped', 'no date'
+
+    # Respect earlier manual review decisions before anything else. A file a
+    # human already examined and deleted must not reappear, and re-deciding it
+    # costs the same attention all over again. Matched by name rather than
+    # location because the organizing scripts move files freely.
+    if removal_history is not None and removal_history.was_removed(file_path.name):
+        print(f"    SKIPPED: deliberately removed in an earlier review")
+        return 'skipped', 'previously removed'
 
     # Use smart duplicate detection
     dup_result = detector.find_duplicate(file_path)
@@ -744,6 +754,15 @@ Examples:
     )
 
     parser.add_argument(
+        '--ignore-removal-history',
+        action='store_true',
+        help=(
+            "Import files even if an earlier review deleted them. Off by default: "
+            "a file a human already rejected should not reappear."
+        )
+    )
+
+    parser.add_argument(
         '--model-suffix',
         metavar='SUFFIX',
         default='',
@@ -798,6 +817,14 @@ Examples:
         duration_tolerance=1.0,  # 1 second tolerance for duration matching
         size_tolerance=0.20      # 20% tolerance for "similar" size
     )
+
+    # Load prior manual-review deletions so rejected files are not re-imported
+    if args.ignore_removal_history:
+        review_history = None
+        print("  Removal history: DISABLED via --ignore-removal-history")
+    else:
+        review_history = RemovalHistory.from_directory(PHOTO_OUTPUT_DIR)
+        print(f"  {review_history.describe().splitlines()[0]}")
 
     init_time = time.time() - init_start
 
@@ -920,6 +947,7 @@ Examples:
                 exif_cache=exif_cache,
                 model_suffix_map=model_suffix_map,
                 person_suffix=person_suffix,
+                removal_history=review_history,
             )
 
             if result == 'moved':

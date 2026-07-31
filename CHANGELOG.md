@@ -2,6 +2,201 @@
 
 ---
 
+## v15 — 2026-07-31 — "Keeper gate, removal history, health checks"
+
+Three additions, all aimed at not losing or duplicating data during the remaining
+imports.
+
+<details>
+
+### The 0.92 SSIM keeper gate (implements the CONCERN-7 ruling)
+
+`find_duplicate()`'s size gate is 20% wide, but Google's storage-saver
+recompressions are 1.2x to 8x smaller at identical pixel dimensions. Nothing
+claimed them, so they were reported as new: **3,725 of 4,403** photos in the
+PhotoSync dry-run. Importing would have duplicated thousands of photographs
+already archived, event-filed and reviewed.
+
+For a photo candidate whose size gate fails, dimensions are now compared from the
+header first — a crop or resize is a different asset and must not be confused for a
+recompression — and only on an exact dimension match is SSIM computed. At or above
+`SAME_PHOTO_SSIM_THRESHOLD` (0.92, calibrated by eye against a re-encoding ladder)
+the two are one photograph and the **archived copy is kept**.
+
+Deviation worth flagging: the ruling as stated was "the smaller wins". This keeps
+the *archived* copy instead. In this data they are the same file — the archived copy
+is always the smaller one — and where they would differ, rewriting an organized,
+event-filed, already-reviewed file to reclaim a few hundred kilobytes is not worth
+the disturbance.
+
+Undecidable cases fail toward importing: if SSIM cannot be computed, the file is
+treated as new. A duplicate is recoverable; a discarded original is not.
+
+Verdicts are cached in `.ssim_cache.json`, keyed by both paths plus each file's
+mtime and size, because each one costs decoding two 12-megapixel images.
+
+**Verified** against 300 real pairs held locally: 299 agreed with their recorded
+SSIM verdict, and the single disagreement was a rounding artifact — a filename
+recording `0.9200` for a live value of `0.9197`, correctly below threshold.
+
+### removal_history.py — do not resurrect what was deliberately deleted
+
+Each manual review exports a shell script of files to remove. Nothing consulted
+them, so re-importing an older source tree would restore rejected files and cost
+the same review attention a second time.
+
+`RemovalHistory.from_directory()` reads every `*remove*.sh` in `Organized_Photos/`
+and answers `was_removed(filename)`. Matching is by **name, not location**, because
+the organizing scripts move files freely. Both quoting styles are parsed: `rm "path"`
+from the older exports and `rm 'path'` with `'\''` escaping from those generated
+after the shell-injection fix.
+
+Currently loads **2,529 unique names** from 2,621 entries across three scripts.
+
+Names are normalized so a photo removed under its archived name is recognized when
+it arrives under its source name — `DSCN1234_S3500_Clif_2.JPG` and `DSCN1234.JPG`
+share a key. `-edited` is preserved, since an edited variant is a separate asset.
+
+**A dangerous bug was caught here before it shipped.** The first normalizer used
+`_\d+$` for the collision counter, which chewed through timestamps:
+`IMG_20240101_120000_Nicole.jpg` reduced to `img`. Every date-stamped file would
+have collapsed onto one key and the entire import would have been blocked. The
+counter is now capped at two digits, stripping is bounded to three passes, and any
+strip that would remove a `YYYYMMDD_HHMMSS` group is refused outright. The
+collapse rate fell from 1,641-of-2,621 to 92, which is genuine cross-script overlap.
+
+Wired into `organize_archive.py` ahead of duplicate detection — a file a human
+rejected should not even be compared. `--ignore-removal-history` overrides it.
+
+### check_media_health.py — detect damaged files, not just misplaced ones
+
+Nothing verified that files are intact. A truncated JPEG was found in the PhotoSync
+archive by accident: it reported its dimensions happily and passed every existing
+check, while missing its final 17 bytes including the End-of-Image marker. Confirmed
+structurally — a healthy file there ends `3f ff d9`, that one ends `29 ed`.
+
+Images are **fully decoded** rather than header-read, since dimensions live in the
+first few hundred bytes and a file missing most of its scan data still reports a
+size. Videos are probed with ffprobe, inspecting stderr rather than trusting a zero
+exit. Zero-byte files are flagged separately. Threaded, since the work is I/O bound
+and often across a network share.
+
+Statuses: `ok`, `truncated`, `empty`, `unreadable`, `suspect`, `not_checked`.
+Exits non-zero when anything is damaged, so a wrapper can react.
+
+Verified against deliberately damaged copies: truncated, empty, and non-image files
+were each correctly categorised, with the intact control passing.
+
+### Tests — 133 → 153
+
+- `TestRecompressionKeeperGate` (7): heavy recompression recognized, a different
+  photograph at identical dimensions still imported, dimension mismatch
+  short-circuiting before any decode, the fast path untouched when sizes agree,
+  verdict caching and reload, a burst conflict still overriding the gate, and the
+  threshold constant actually being honoured. The fixture quality pair was chosen by
+  measurement — white noise was tried first and rejected because JPEG destroys it,
+  giving an unrepresentative SSIM of 0.77.
+- `TestNormalizeMediaName` (11) and `TestRemovalHistory` (9): weighted toward the
+  over-stripping failure mode, including an explicit regression guard that a
+  timestamp is never removed and that distinct timestamps never share a key.
+
+</details>
+
+---
+
+## v14 — 2026-07-30 — "BUG-8: burst frames were skipped as duplicates"
+
+The importer silently discarded distinct photographs. Measured at 2.8% of all
+skip decisions; now 0%.
+
+<details>
+
+### BUG-8: sub-second frames collapsed onto one date pattern
+
+`extract_date_pattern()` resolves only to `YYYYMMDD_HHMMSS`, which is what lets it
+match across naming conventions. Two mechanisms defeat that resolution:
+
+1. **Milliseconds are discarded.** `IMG_20210616_120804026.jpg` and
+   `IMG_20210616_120804916_Nicole.jpg` are different photographs from the same
+   second, but both reduce to `20210616_120804`.
+2. **Burst frames share everything but the index.** `..._190213263_BURST000_COVER_TOP.jpg`
+   and `..._190213263_BURST001_Nicole.jpg` match down to the millisecond.
+
+`find_duplicate()` then accepted the first candidate whose size fell within
+`size_tolerance` (20%). Burst frames of one scene compress to nearly identical
+sizes — several were reported as "exact size" — so the gate passed and the source
+was skipped.
+
+Measured on 600 PhotoSync files the importer would skip: **583 genuine duplicates,
+17 (2.8%) matched the WRONG photograph**, SSIM from 0.2244 to 0.7999. The archive
+holds 562 date patterns mapping to more than one file, each an opportunity for the
+mispairing. At that rate the PhotoSync import alone would have dropped roughly 200
+distinct photographs.
+
+### Perceptual hashing was measured and REJECTED
+
+The obvious fix — verify a name-and-size match with a pHash comparison — does not
+work, and the measurement is worth keeping so nobody tries it again. Across 500
+real skip decisions:
+
+| population | pHash hamming distance |
+|---|---|
+| Same photograph (SSIM ≥ 0.90), n=487 | min 0, p50 0, **max 0** |
+| Different photograph (SSIM < 0.90), n=13 | **min 0**, p50 4, max 16 |
+
+There is no separating threshold: one mispairing scored distance **0** at an SSIM
+of 0.7597. Burst frames are the same scene, which is exactly what a perceptual
+hash is built to call identical. It cannot distinguish "same scene, a moment
+later."
+
+### Fix: filename frame discriminators
+
+New in `duplicate_detector.py`:
+
+- `extract_frame_signature(filename)` — pulls the millisecond field (three digits
+  immediately after `HHMMSS`) and the burst index (digits after `_BURST`), as ints
+  so padding differences compare equal.
+- `frame_signatures_conflict(name_a, name_b)` — true only when a field is present
+  in **both** names and differs. Absence never counts as a conflict, which keeps
+  the check purely additive: it can prevent a false match but never cause one.
+
+`find_duplicate()` rejects any candidate that conflicts, before the size gate.
+
+Also closed a related gap: when the date pattern matched but nothing was accepted
+— including the new case where every candidate was rejected as a different frame —
+the result now falls through to a content-hash check. Byte equality settles
+identity regardless of what filenames imply, so a file whose name conflicts but
+whose bytes match is still recognized rather than re-imported.
+
+### Verified
+
+Re-running the same 600-file check after the fix: **600 genuine duplicates, 0
+matched the wrong photo.** The true-positive rate did not regress.
+
+Note this never affected the Nikon archive: those 4,491 files matched
+byte-identically via the v12 content-hash path, which cannot mispair.
+
+The same logic governed every previous import, so earlier Takeout runs may have
+dropped burst frames. The sources still exist, so a re-run of the affected imports
+should now surface them.
+
+### Tests — 106 → 126
+
+- `TestFrameSignature` (14): extraction of milliseconds and burst indices across
+  Pixel, Takeout, camcorder and organized naming; a `_1` collision counter not
+  being mistaken for milliseconds; zero-padding equivalence; absence never
+  conflicting; and a regression guard asserting all 17 real observed mispairings
+  are caught.
+- `TestBurstFramesNotSkipped` (6): neighbouring burst frame imported rather than
+  skipped, same-second/different-millisecond imported, true duplicate of the same
+  frame still skipped, the correct frame chosen when both are archived,
+  byte-identity overriding a name conflict, and discriminator-free names behaving
+  exactly as before.
+
+</details>
+
+---
+
 ## v13 — 2026-07-30 — "Source hash cache + dry-run purity"
 
 Follow-ups found while validating v12 against the real Nikon NAS archive. Three

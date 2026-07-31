@@ -28,19 +28,46 @@ import json
 import os
 import re
 import subprocess
+
+try:
+    import cv2
+    import numpy as np
+except ImportError:  # pragma: no cover - mirrors analyze_photo_quality
+    cv2 = None
+    np = None
+
+from PIL import Image
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from analyze_photo_quality import compute_md5, get_analysis_cache, save_all_caches
+from analyze_photo_quality import (
+    OPENCV_AVAILABLE,
+    compute_md5,
+    get_analysis_cache,
+    read_image_opencv,
+    save_all_caches,
+)
 from build_file_index import build_file_index
 from media_utils import VIDEO_EXTENSIONS
 
 # Hashes of incoming source files, stored beside this module rather than in the
 # source tree. See DuplicateDetector._hash_source() for the rationale.
 SOURCE_HASH_CACHE_FILE = ".source_hash_cache.json"
+
+# Pairwise SSIM verdicts, cached because computing one costs a full decode of both
+# images. See DuplicateDetector._structural_similarity().
+SSIM_CACHE_FILE = ".ssim_cache.json"
+
+# Above this SSIM, two same-dimension images are treated as the same photograph
+# and the archived copy is kept. Calibrated by eye against a re-encoding ladder on
+# 2026-07-30: artifacts became visible around 0.965 and objectionable below 0.96,
+# then lowered to 0.92 after review of the worst real case in the data (0.9282)
+# was still not worth caring about. Every Google recompression measured falls in
+# 0.92-0.99, so in practice this keeps the archived copy for all of them.
+SAME_PHOTO_SSIM_THRESHOLD = 0.92
 
 
 class MatchConfidence(Enum):
@@ -255,6 +282,128 @@ def extract_date_from_filename(filename: str) -> Optional[datetime]:
     return None
 
 
+# Sub-second discriminators that the YYYYMMDD_HHMMSS date pattern cannot see.
+# Milliseconds are the three digits immediately following HHMMSS; the burst index
+# follows _BURST. See extract_frame_signature() for why both are needed.
+_MILLISECONDS_PATTERN = re.compile(r'\d{8}_\d{6}(\d{3})')
+_BURST_INDEX_PATTERN = re.compile(r'_BURST(\d+)', re.IGNORECASE)
+
+
+def _read_dimensions(path: Path) -> Optional[tuple]:
+    """
+    Read pixel dimensions from an image header without decoding it.
+
+    Used as a cheap gate before any SSIM work: two images of different dimensions
+    are a crop or a resize, never a recompression of one another.
+
+    Args:
+        path: Path to an image file
+
+    Returns:
+        tuple (width, height), or None if unreadable
+    """
+    try:
+        with Image.open(path) as image:
+            return image.size
+    except Exception:
+        return None
+
+
+def _gaussian_ssim(gray_a, gray_b) -> float:
+    """
+    Structural similarity between two equally-sized grayscale images.
+
+    Implemented here rather than reusing analyze_photo_quality.calculate_image_ssim(),
+    which resizes its inputs to a fixed working size. The whole question here is
+    whether fine detail differs, so both images are compared at native resolution.
+
+    Gaussian-windowed formulation per Wang et al. 2004.
+
+    Args:
+        gray_a: 2-D grayscale array
+        gray_b: 2-D grayscale array of identical shape
+
+    Returns:
+        float: mean SSIM in [0, 1]
+    """
+    a = gray_a.astype(np.float64)
+    b = gray_b.astype(np.float64)
+
+    c1 = (0.01 * 255) ** 2
+    c2 = (0.03 * 255) ** 2
+    kernel, sigma = (11, 11), 1.5
+
+    mu_a = cv2.GaussianBlur(a, kernel, sigma)
+    mu_b = cv2.GaussianBlur(b, kernel, sigma)
+    mu_a_sq, mu_b_sq, mu_ab = mu_a ** 2, mu_b ** 2, mu_a * mu_b
+
+    sigma_a_sq = cv2.GaussianBlur(a * a, kernel, sigma) - mu_a_sq
+    sigma_b_sq = cv2.GaussianBlur(b * b, kernel, sigma) - mu_b_sq
+    sigma_ab = cv2.GaussianBlur(a * b, kernel, sigma) - mu_ab
+
+    numerator = (2 * mu_ab + c1) * (2 * sigma_ab + c2)
+    denominator = (mu_a_sq + mu_b_sq + c1) * (sigma_a_sq + sigma_b_sq + c2)
+
+    return float(np.mean(numerator / denominator))
+
+
+def extract_frame_signature(filename: str) -> dict:
+    """
+    Extract sub-second frame discriminators from a media filename.
+
+    extract_date_pattern() deliberately captures only YYYYMMDD_HHMMSS, which is
+    what lets it match across naming conventions. But that resolution cannot
+    separate two photographs taken in the same second, and burst frames are worse
+    still: they share the timestamp down to the millisecond and differ only in
+    their burst index. Treating either case as one photograph silently discards a
+    distinct image (BUG-8).
+
+    Args:
+        filename: Bare filename, with or without a person suffix
+
+    Returns:
+        dict with 'milliseconds' and 'burst_index' keys, each an int or None
+    """
+    ms_match = _MILLISECONDS_PATTERN.search(filename)
+    burst_match = _BURST_INDEX_PATTERN.search(filename)
+
+    return {
+        # int() so that differently-padded values compare equal
+        'milliseconds': int(ms_match.group(1)) if ms_match else None,
+        'burst_index': int(burst_match.group(1)) if burst_match else None,
+    }
+
+
+def frame_signatures_conflict(name_a: str, name_b: str) -> bool:
+    """
+    Report whether two filenames provably describe DIFFERENT frames.
+
+    A conflict requires a field to be present in BOTH names and to differ. A field
+    missing from either name proves nothing — plenty of naming conventions carry no
+    milliseconds and no burst index — so absence is never a conflict. This keeps
+    the check purely additive: it can only ever prevent a false duplicate match,
+    never cause one.
+
+    Args:
+        name_a: First bare filename
+        name_b: Second bare filename
+
+    Returns:
+        bool: True when the two cannot be the same photograph
+    """
+    signature_a = extract_frame_signature(name_a)
+    signature_b = extract_frame_signature(name_b)
+
+    for field in ('milliseconds', 'burst_index'):
+        value_a = signature_a[field]
+        value_b = signature_b[field]
+
+        if value_a is not None and value_b is not None and value_a != value_b:
+            return True
+
+    return False
+
+
 def extract_date_pattern(filename: str) -> Optional[str]:
     """
     Extract the core date pattern (YYYYMMDD_HHMMSS) from a filename.
@@ -293,7 +442,8 @@ class DuplicateDetector:
         video_dir: Path,
         duration_tolerance: float = 1.0,
         size_tolerance: float = 0.20,
-        source_hash_cache: Optional[Path] = None
+        source_hash_cache: Optional[Path] = None,
+        ssim_cache: Optional[Path] = None
     ):
         """
         Initialize the detector.
@@ -328,6 +478,15 @@ class DuplicateDetector:
         self._source_hash_path = Path(source_hash_cache)
         self._source_hashes = self._load_source_hashes()
         self._source_hashes_dirty = False
+
+        # Pairwise SSIM verdicts, used to recognise same-dimension recompressions
+        # that the size gate is too narrow to catch.
+        if ssim_cache is None:
+            ssim_cache = Path(__file__).parent / SSIM_CACHE_FILE
+
+        self._ssim_cache_path = Path(ssim_cache)
+        self._ssim_cache = self._load_ssim_cache()
+        self._ssim_cache_dirty = False
 
         # Build file index
         self.file_index = build_file_index(
@@ -421,6 +580,123 @@ class DuplicateDetector:
 
         cache.set_md5(file_path, digest)
         return digest
+
+    def _load_ssim_cache(self) -> dict:
+        """Load the pairwise SSIM cache, tolerating absence or corruption."""
+        if not self._ssim_cache_path.exists():
+            return {}
+
+        try:
+            with open(self._ssim_cache_path, 'r') as handle:
+                loaded = json.load(handle)
+
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+        return loaded if isinstance(loaded, dict) else {}
+
+    def save_ssim_cache(self):
+        """
+        Persist pairwise SSIM verdicts.
+
+        Worth caching because each verdict costs a full decode of two 12-megapixel
+        images. Without it the usual dry-run-then-live-run sequence pays that price
+        twice over thousands of pairs.
+        """
+        if not self._ssim_cache_dirty:
+            return
+
+        try:
+            with open(self._ssim_cache_path, 'w') as handle:
+                json.dump(self._ssim_cache, handle, indent=2)
+
+            self._ssim_cache_dirty = False
+
+        except OSError as error:
+            print(f"  WARNING: Could not save SSIM cache: {error}")
+
+    def _structural_similarity(self, source_path: Path, candidate_path: Path) -> Optional[float]:
+        """
+        Compute SSIM between two same-dimension images, caching the result.
+
+        Answers the question the size gate cannot: is this the same photograph, or
+        merely one taken at the same moment? Only meaningful when dimensions match
+        exactly, so callers must check that first — a crop or resize is a different
+        asset and is not this function's business.
+
+        Cached by both paths plus each file's mtime and size, so editing either
+        side invalidates the entry.
+
+        Args:
+            source_path:    Incoming file
+            candidate_path: Archived file, already known to share dimensions
+
+        Returns:
+            float SSIM in [0, 1], or None if either image could not be read
+        """
+        if not OPENCV_AVAILABLE:
+            return None
+
+        try:
+            source_stat = source_path.stat()
+            candidate_stat = candidate_path.stat()
+        except OSError:
+            return None
+
+        key = (
+            f"{source_path.resolve()}|{source_stat.st_size}|{source_stat.st_mtime}"
+            f"||{candidate_path.resolve()}|{candidate_stat.st_size}|{candidate_stat.st_mtime}"
+        )
+
+        if key in self._ssim_cache:
+            return self._ssim_cache[key]
+
+        source_image = read_image_opencv(source_path, grayscale=True)
+        candidate_image = read_image_opencv(candidate_path, grayscale=True)
+
+        if source_image is None or candidate_image is None:
+            return None
+
+        if source_image.shape != candidate_image.shape:
+            return None
+
+        score = _gaussian_ssim(source_image, candidate_image)
+
+        self._ssim_cache[key] = score
+        self._ssim_cache_dirty = True
+
+        return score
+
+    def _is_same_photograph(self, source_path: Path, candidate_path: Path) -> bool:
+        """
+        Decide whether a size-mismatched candidate is nonetheless the same photo.
+
+        The size gate is only 20% wide, but Google's storage-saver recompressions
+        run 1.2x to 8x smaller at identical pixel dimensions. Those fall outside the
+        gate and would otherwise be imported as new, creating a near-duplicate of
+        something already archived and reviewed.
+
+        Requires identical dimensions before spending anything on a decode, so a
+        crop or resize is never confused for a recompression.
+
+        Args:
+            source_path:    Incoming file
+            candidate_path: Archived file
+
+        Returns:
+            bool: True when the two are the same photograph
+        """
+        if _read_dimensions(source_path) != _read_dimensions(candidate_path):
+            return False
+
+        score = self._structural_similarity(source_path, candidate_path)
+
+        if score is None:
+            # Undecidable — prefer importing a possible duplicate over discarding
+            # a possible original. Duplicates are recoverable; lost photos are not.
+            return False
+
+        return score >= SAME_PHOTO_SSIM_THRESHOLD
 
     def _load_source_hashes(self) -> dict:
         """
@@ -593,6 +869,7 @@ class DuplicateDetector:
         """
         self.save_duration_cache()
         self.save_source_hashes()
+        self.save_ssim_cache()
         save_all_caches()
 
     def save_duration_cache(self):
@@ -757,6 +1034,21 @@ class DuplicateDetector:
             if not candidate_path.exists():
                 continue
 
+            # Reject candidates that provably describe a DIFFERENT frame. The date
+            # pattern resolves only to the second, so burst frames and shots taken
+            # within the same second all collapse onto one pattern. Burst frames of
+            # a scene also compress to nearly identical sizes, so the size gate
+            # below happily passes and the source would be skipped — silently
+            # discarding a distinct photograph (BUG-8).
+            #
+            # Perceptual hashing was measured as an alternative and rejected:
+            # across 500 real skip decisions, true duplicates scored a pHash
+            # distance of 0 every time while mispaired burst frames scored 0 to 16,
+            # including one at 0 with an SSIM of 0.7597. Burst frames are the same
+            # scene, which is precisely what pHash is designed to call identical.
+            if frame_signatures_conflict(source_path.name, candidate_path.name):
+                continue
+
             candidate_size = candidate_path.stat().st_size
 
             # Check duration match for videos
@@ -827,6 +1119,33 @@ class DuplicateDetector:
                 # Not a video or no duration - fall back to size comparison only
                 size_diff_pct = abs(source_size - candidate_size) / max(source_size, candidate_size)
 
+                # A recompression of the same photograph can sit far outside the
+                # size gate: Google's storage-saver pass produced copies 1.2x to 8x
+                # smaller at identical pixel dimensions. Those would otherwise be
+                # imported as new, duplicating something already archived, filed
+                # into an event folder and reviewed. Compare structurally instead.
+                #
+                # The archived copy is kept rather than the smaller of the two. In
+                # this data the archived copy IS the smaller one, so the two rules
+                # coincide; where they would not, replacing an already-organized
+                # file to reclaim a few hundred kilobytes is not worth disturbing
+                # the archive for.
+                if size_diff_pct > self.size_tolerance:
+                    if self._is_same_photograph(source_path, candidate_path):
+                        source_mb = source_size / 1_000_000
+                        candidate_mb = candidate_size / 1_000_000
+
+                        return DuplicateResult(
+                            is_duplicate=True,
+                            confidence=MatchConfidence.HIGH,
+                            existing_path=candidate_path,
+                            prefer_existing=True,
+                            reason=(
+                                f"Same photograph, different compression "
+                                f"({source_mb:.1f}MB vs {candidate_mb:.1f}MB) — keeping archived copy"
+                            )
+                        )
+
                 if size_diff_pct <= self.size_tolerance:
                     source_mb = source_size / 1_000_000
                     candidate_mb = candidate_size / 1_000_000
@@ -844,7 +1163,21 @@ class DuplicateDetector:
                         reason=f"Same date pattern, {size_desc}"
                     )
 
-        # Date pattern matched but no duration/size match
+        # Date pattern matched but nothing was accepted — either sizes/durations
+        # disagreed, or every candidate was rejected as a different frame. Before
+        # declaring the file new, check content: byte equality settles the question
+        # regardless of what the filenames imply.
+        identical = self._find_identical_by_content(source_path, source_size)
+
+        if identical is not None:
+            return DuplicateResult(
+                is_duplicate=True,
+                confidence=MatchConfidence.EXACT,
+                existing_path=identical,
+                prefer_existing=True,
+                reason=f"Byte-identical to {identical.name} despite name mismatch"
+            )
+
         return DuplicateResult(
             is_duplicate=False,
             confidence=MatchConfidence.LOW,

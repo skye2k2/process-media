@@ -12,6 +12,7 @@ TO_PROCESS/
 .analysis_cache.json
 .duration_cache.json
 .source_hash_cache.json
+.ssim_cache.json
 
 
 # Environments

@@ -55,6 +55,7 @@ import check_nas_archive
 import create_event_folders
 import duplicate_detector
 import organize_archive
+import removal_history
 from analyze_photo_quality import ImageAnalysisCache, get_analysis_cache
 
 
@@ -1391,6 +1392,686 @@ class TestExifOnlyDuplicateDetection(unittest.TestCase):
 
         self.assertTrue(result.is_duplicate, "should match on freshly computed hash")
         self.assertEqual(result.existing_path, archived)
+
+
+# ============================================================================
+# SECTION 10: Frame Discriminators (BUG-8)
+# ============================================================================
+
+class TestFrameSignature(unittest.TestCase):
+    """
+    Cover extract_frame_signature() and frame_signatures_conflict().
+
+    extract_date_pattern() resolves only to the second. Two photographs taken in
+    the same second, and burst frames which share the timestamp down to the
+    millisecond, both collapse onto one pattern. Without these discriminators the
+    importer matched a burst frame against its neighbour and skipped it, silently
+    discarding a distinct photograph.
+
+    Note: perceptual hashing was measured as an alternative and REJECTED. Across
+    500 real skip decisions, true duplicates scored a pHash distance of 0 in every
+    case, while mispaired burst frames scored 0 to 16 — one mispairing at distance
+    0 despite an SSIM of 0.7597. Burst frames are the same scene, which is exactly
+    what pHash is built to call identical, so it cannot separate them.
+    """
+
+    def _signature(self, filename):
+        return duplicate_detector.extract_frame_signature(filename)
+
+    def _conflict(self, name_a, name_b):
+        return duplicate_detector.frame_signatures_conflict(name_a, name_b)
+
+    # -- Extraction ----------------------------------------------------------
+
+    def test_milliseconds_extracted(self):
+        result = self._signature("IMG_20210616_120804026.jpg")
+        self.assertEqual(result['milliseconds'], 26)
+        self.assertIsNone(result['burst_index'])
+
+    def test_burst_index_extracted(self):
+        result = self._signature("IMG_20210908_190213263_BURST001_Nicole.jpg")
+        self.assertEqual(result['milliseconds'], 263)
+        self.assertEqual(result['burst_index'], 1)
+
+    def test_burst_cover_frame(self):
+        """The cover frame carries trailing markers after the index."""
+        result = self._signature("IMG_20210908_190213263_BURST000_COVER_TOP.jpg")
+        self.assertEqual(result['burst_index'], 0)
+
+    def test_burst_with_trailing_noise(self):
+        """Some Takeout names append extra digits after COVER_TOP."""
+        result = self._signature("IMG_20200119_135649158_BURST000_COVER_TOP20_56_18.jpg")
+        self.assertEqual(result['milliseconds'], 158)
+        self.assertEqual(result['burst_index'], 0)
+
+    def test_no_milliseconds_present(self):
+        """Camcorder and organized names often stop at seconds."""
+        result = self._signature("20210526_162641_Clif.jpg")
+        self.assertIsNone(result['milliseconds'])
+        self.assertIsNone(result['burst_index'])
+
+    def test_collision_counter_is_not_milliseconds(self):
+        """A trailing _1 collision counter must not be read as milliseconds."""
+        result = self._signature("P_20241012_162741_1_Nicole.jpg")
+        self.assertIsNone(result['milliseconds'])
+
+    def test_video_milliseconds(self):
+        result = self._signature("VID_20210526_162641582.mp4")
+        self.assertEqual(result['milliseconds'], 582)
+
+    # -- Conflict detection --------------------------------------------------
+
+    def test_differing_burst_index_conflicts(self):
+        """The dominant BUG-8 case: neighbouring burst frames."""
+        self.assertTrue(self._conflict(
+            "IMG_20210908_190213263_BURST000_COVER_TOP.jpg",
+            "IMG_20210908_190213263_BURST001_Nicole.jpg"
+        ))
+
+    def test_differing_milliseconds_conflict(self):
+        """Two photographs in the same second, different milliseconds."""
+        self.assertTrue(self._conflict(
+            "IMG_20210616_120804026.jpg",
+            "IMG_20210616_120804916_Nicole.jpg"
+        ))
+
+    def test_identical_names_do_not_conflict(self):
+        self.assertFalse(self._conflict(
+            "IMG_20210616_120804026.jpg",
+            "IMG_20210616_120804026_Nicole.jpg"
+        ))
+
+    def test_same_burst_index_does_not_conflict(self):
+        """Cover marker aside, the same index is the same frame."""
+        self.assertFalse(self._conflict(
+            "IMG_20210908_190213263_BURST000_COVER_TOP.jpg",
+            "IMG_20210908_190213263_BURST000_Nicole.jpg"
+        ))
+
+    def test_absent_field_is_never_a_conflict(self):
+        """
+        A field missing from either name proves nothing, so it must not block a
+        legitimate match. This keeps the check purely additive.
+        """
+        self.assertFalse(self._conflict(
+            "IMG_20210616_120804026.jpg",
+            "20210616_120804_Clif.jpg"
+        ))
+        self.assertFalse(self._conflict(
+            "20210616_120804_Clif.jpg",
+            "IMG_20210616_120804916_Nicole.jpg"
+        ))
+
+    def test_zero_padding_ignored(self):
+        """BURST01 and BURST001 are the same index."""
+        self.assertFalse(self._conflict(
+            "IMG_20210908_190213263_BURST01.jpg",
+            "IMG_20210908_190213263_BURST001.jpg"
+        ))
+
+    def test_all_seventeen_observed_mispairings_are_caught(self):
+        """
+        Regression guard using the real filename pairs measured on 2026-07-30.
+        Every one must be recognized as a conflict.
+        """
+        observed = [
+            ("IMG_20210908_190213263_BURST000_COVER_TOP.jpg", "IMG_20210908_190213263_BURST001_Nicole.jpg"),
+            ("IMG_20210616_120804026.jpg", "IMG_20210616_120804916_Nicole.jpg"),
+            ("IMG_20220212_111944449_BURST001.jpg", "IMG_20220212_111944449_BURST000_COVER_TOP_Nicole.jpg"),
+            ("IMG_20210810_133435242_BURST001.jpg", "IMG_20210810_133435242_BURST000_COVER_TOP_Nicole.jpg"),
+            ("IMG_20210616_193055805_BURST001.jpg", "IMG_20210616_193055805_BURST000_COVER_TOP_Nicole.jpg"),
+            ("IMG_20220212_095639412_BURST000_COVER_TOP.jpg", "IMG_20220212_095639412_BURST001_Nicole.jpg"),
+            ("IMG_20211014_135402265_BURST000_COVER_TOP.jpg", "IMG_20211014_135402265_BURST001_Nicole.jpg"),
+            ("IMG_20210909_153159811_BURST000_COVER_TOP.jpg", "IMG_20210909_153159811_BURST001_Nicole.jpg"),
+            ("IMG_20220212_114351329_BURST000_COVER_TOP.jpg", "IMG_20220212_114351329_BURST001_Nicole.jpg"),
+            ("IMG_20220116_100658351_BURST000_COVER_TOP.jpg", "IMG_20220116_100658351_BURST001_Nicole.jpg"),
+            ("IMG_20210608_131933548_BURST001.jpg", "IMG_20210608_131933548_BURST000_COVER_TOP_Nicole.jpg"),
+            ("IMG_20210614_130612098.jpg", "IMG_20210614_130612865_Nicole.jpg"),
+            ("IMG_20220212_111945973_BURST001.jpg", "IMG_20220212_111945973_BURST000_COVER_TOP_Nicole.jpg"),
+            ("IMG_20210911_153318141_BURST000_COVER_TOP.jpg", "IMG_20210911_153318141_BURST001_Nicole.jpg"),
+            ("IMG_20210809_154723251.jpg", "IMG_20210809_154723165_Nicole.jpg"),
+            ("IMG_20210803_162105044_BURST001.jpg", "IMG_20210803_162105044_BURST000_COVER_TOP_Nicole.jpg"),
+            ("IMG_20211209_151932312_HDR.jpg", "IMG_20211209_151932885_HDR_Nicole.jpg"),
+        ]
+
+        self.assertEqual(len(observed), 17, "the measured set was 17 mispairings")
+
+        for source_name, matched_name in observed:
+            with self.subTest(source=source_name):
+                self.assertTrue(
+                    self._conflict(source_name, matched_name),
+                    f"{source_name} vs {matched_name} must be a conflict"
+                )
+
+
+class TestBurstFramesNotSkipped(unittest.TestCase):
+    """
+    End-to-end cover for BUG-8 through find_duplicate().
+
+    Burst frames of one scene compress to nearly identical sizes, so the 20%
+    size gate passes and the source was declared a duplicate and skipped.
+    """
+
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.photo_dir = self.temp_dir / "Organized_Photos"
+        self.video_dir = self.temp_dir / "Organized_Videos"
+        self.month_dir = self.photo_dir / "2021" / "09 September"
+        self.month_dir.mkdir(parents=True)
+        self.video_dir.mkdir(parents=True)
+        self.incoming = self.temp_dir / "TO_PROCESS"
+        self.incoming.mkdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _detector(self):
+        return duplicate_detector.DuplicateDetector(
+            photo_dir=self.photo_dir,
+            video_dir=self.video_dir,
+            source_hash_cache=self.temp_dir / 'source_hashes.json'
+        )
+
+    def test_neighbouring_burst_frame_is_not_a_duplicate(self):
+        """
+        BURST000 already archived; BURST001 arriving is a DIFFERENT photograph of
+        near-identical size. It must be imported, not skipped.
+        """
+        (self.month_dir / "IMG_20210908_190213263_BURST000_COVER_TOP_Nicole.jpg").write_bytes(
+            b"\xff\xd8\xff\xe0" + b"frame zero" * 400
+        )
+        source = self.incoming / "IMG_20210908_190213263_BURST001.jpg"
+        source.write_bytes(b"\xff\xd8\xff\xe0" + b"frame one!" * 400)
+
+        result = self._detector().find_duplicate(source)
+
+        self.assertFalse(result.is_duplicate, "a different burst frame must be imported")
+
+    def test_same_second_different_milliseconds_is_not_a_duplicate(self):
+        (self.month_dir / "IMG_20210616_120804916_Nicole.jpg").write_bytes(
+            b"\xff\xd8\xff\xe0" + b"later shot" * 400
+        )
+        source = self.incoming / "IMG_20210616_120804026.jpg"
+        source.write_bytes(b"\xff\xd8\xff\xe0" + b"first shot" * 400)
+
+        result = self._detector().find_duplicate(source)
+
+        self.assertFalse(result.is_duplicate)
+
+    def test_true_duplicate_of_the_same_frame_is_still_skipped(self):
+        """The fix must not break legitimate matching of the same frame."""
+        payload = b"\xff\xd8\xff\xe0" + b"one frame" * 400
+        archived = self.month_dir / "IMG_20210908_190213263_BURST001_Nicole.jpg"
+        archived.write_bytes(payload)
+        source = self.incoming / "IMG_20210908_190213263_BURST001.jpg"
+        source.write_bytes(payload)
+
+        result = self._detector().find_duplicate(source)
+
+        self.assertTrue(result.is_duplicate)
+        self.assertEqual(result.existing_path, archived)
+
+    def test_correct_frame_chosen_when_both_are_archived(self):
+        """
+        With BURST000 and BURST001 both archived, an incoming BURST001 must match
+        BURST001 rather than whichever the index happens to list first.
+        """
+        payload_one = b"\xff\xd8\xff\xe0" + b"frame one!" * 400
+        self.month_dir.joinpath("IMG_20210908_190213263_BURST000_COVER_TOP_Nicole.jpg").write_bytes(
+            b"\xff\xd8\xff\xe0" + b"frame zero" * 400
+        )
+        archived_one = self.month_dir / "IMG_20210908_190213263_BURST001_Nicole.jpg"
+        archived_one.write_bytes(payload_one)
+
+        source = self.incoming / "IMG_20210908_190213263_BURST001.jpg"
+        source.write_bytes(payload_one)
+
+        result = self._detector().find_duplicate(source)
+
+        self.assertTrue(result.is_duplicate)
+        self.assertEqual(result.existing_path, archived_one)
+
+    def test_byte_identical_wins_over_a_name_conflict(self):
+        """
+        If the bytes are identical the files ARE the same image, whatever the
+        burst index claims. Falling through to import would create a duplicate.
+        """
+        payload = b"\xff\xd8\xff\xe0" + b"identical" * 400
+        archived = self.month_dir / "IMG_20210908_190213263_BURST000_COVER_TOP_Nicole.jpg"
+        archived.write_bytes(payload)
+        source = self.incoming / "IMG_20210908_190213263_BURST001.jpg"
+        source.write_bytes(payload)
+
+        result = self._detector().find_duplicate(source)
+
+        self.assertTrue(result.is_duplicate, "byte equality settles it")
+        self.assertEqual(result.existing_path, archived)
+        self.assertIn("despite name mismatch", result.reason)
+
+    def test_names_without_discriminators_still_match(self):
+        """
+        Camcorder-style names carry no milliseconds or burst index, so the date
+        pattern remains the only signal and behaviour is unchanged.
+        """
+        payload = b"\xff\xd8\xff\xe0" + b"camcorder" * 400
+        archived = self.month_dir / "20210908_190213_Clif.jpg"
+        archived.write_bytes(payload)
+        source = self.incoming / "20210908_190213.jpg"
+        source.write_bytes(payload)
+
+        result = self._detector().find_duplicate(source)
+
+        self.assertTrue(result.is_duplicate)
+        self.assertEqual(result.existing_path, archived)
+
+
+# ============================================================================
+# SECTION 11: Recompression Keeper Gate (CONCERN-7 ruling)
+# ============================================================================
+
+class TestRecompressionKeeperGate(unittest.TestCase):
+    """
+    Cover the 0.92 SSIM ruling in the import path.
+
+    Google's storage-saver pass produced copies 1.2x to 8x smaller at identical
+    pixel dimensions. Those fall outside the 20% size gate, so before this gate
+    existed the importer reported them as new — 3,725 of 4,403 files in the
+    PhotoSync dry-run — and importing would have duplicated photographs already
+    archived, event-filed and reviewed.
+
+    Real images are generated rather than stubbed, because SSIM needs actual pixel
+    data. They are kept small so the suite stays fast.
+    """
+
+    def setUp(self):
+        if not duplicate_detector.OPENCV_AVAILABLE:
+            self.skipTest("OpenCV required for SSIM")
+
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.photo_dir = self.temp_dir / "Organized_Photos"
+        self.video_dir = self.temp_dir / "Organized_Videos"
+        self.month_dir = self.photo_dir / "2021" / "05 May"
+        self.month_dir.mkdir(parents=True)
+        self.video_dir.mkdir(parents=True)
+        self.incoming = self.temp_dir / "TO_PROCESS"
+        self.incoming.mkdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _detector(self):
+        return duplicate_detector.DuplicateDetector(
+            photo_dir=self.photo_dir,
+            video_dir=self.video_dir,
+            source_hash_cache=self.temp_dir / 'source_hashes.json',
+            ssim_cache=self.temp_dir / 'ssim.json'
+        )
+
+    # Quality pair chosen by measurement, not guesswork. On the fixture below it
+    # yields a 3.1x size ratio (well outside the 20% gate) at SSIM 0.9401 — which
+    # sits mid-range among the real pairs measured in the archive (0.9282-0.9942 at
+    # ratios of 1.2x-8x). White noise was tried first and rejected: JPEG destroys it
+    # outright, giving SSIM 0.77 and making the fixture unrepresentative.
+    ARCHIVED_QUALITY = 80
+    SOURCE_QUALITY = 95
+
+    def _detailed_image(self, seed=0):
+        """
+        Build a photograph-like image: smooth gradients, a scattering of shapes, and
+        mild grain.
+
+        Detail is needed so that JPEG quality actually moves the file size, but pure
+        noise is the wrong fixture — real photographs are largely smooth with
+        localized detail, and they survive recompression far better than noise does.
+        """
+        import cv2
+        import numpy as np
+
+        rng = np.random.RandomState(seed)
+        height, width = 480, 640
+        rows, columns = np.mgrid[0:height, 0:width].astype(np.float32)
+
+        image = np.zeros((height, width, 3), np.float32)
+        image[..., 0] = 120 + 80 * np.sin(columns / 60.0) * np.cos(rows / 90.0)
+        image[..., 1] = 110 + 70 * np.sin((columns + rows) / 70.0)
+        image[..., 2] = 130 + 60 * np.cos(rows / 50.0)
+
+        for _ in range(18):
+            centre = (rng.randint(0, width), rng.randint(0, height))
+            colour = tuple(int(value) for value in rng.randint(0, 255, 3))
+            cv2.circle(image, centre, rng.randint(10, 50), colour, -1)
+
+        image += rng.normal(0, 3, image.shape)
+
+        return np.clip(image, 0, 255).astype(np.uint8)
+
+    def _write_jpeg(self, path, image, quality):
+        import cv2
+
+        cv2.imwrite(str(path), image, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        return path
+
+    def test_heavy_recompression_of_same_photo_is_a_duplicate(self):
+        """
+        Same image at quality 95 and quality 25: dimensions identical, sizes far
+        apart. Must be recognized as one photograph, keeping the archived copy.
+        """
+        image = self._detailed_image(seed=1)
+        archived = self._write_jpeg(
+            self.month_dir / "IMG_20210510_120254911_Nicole.jpg", image, self.ARCHIVED_QUALITY)
+        source = self._write_jpeg(
+            self.incoming / "IMG_20210510_120254911.jpg", image, self.SOURCE_QUALITY)
+
+        ratio = source.stat().st_size / archived.stat().st_size
+        self.assertGreater(ratio, 1.25, "sizes must fall outside the 20% gate")
+
+        result = self._detector().find_duplicate(source)
+
+        self.assertTrue(result.is_duplicate, "recompression must be caught")
+        self.assertEqual(result.existing_path, archived)
+        self.assertTrue(result.prefer_existing, "the archived copy is kept")
+        self.assertIn("Same photograph", result.reason)
+
+    def test_different_photo_at_same_dimensions_is_not_a_duplicate(self):
+        """
+        Two unrelated images of identical dimensions and very different sizes must
+        still be imported. This is the failure that must never happen.
+        """
+        archived = self._write_jpeg(
+            self.month_dir / "IMG_20210510_120254911_Nicole.jpg",
+            self._detailed_image(seed=2), self.ARCHIVED_QUALITY)
+        source = self._write_jpeg(
+            self.incoming / "IMG_20210510_120254911.jpg",
+            self._detailed_image(seed=99), self.SOURCE_QUALITY)
+
+        self.assertNotEqual(archived.stat().st_size, source.stat().st_size)
+
+        result = self._detector().find_duplicate(source)
+
+        self.assertFalse(result.is_duplicate, "a different photograph must import")
+
+    def test_dimension_mismatch_skips_the_ssim_check(self):
+        """
+        A crop or resize is a separate asset, not a recompression. Differing
+        dimensions must short-circuit before any decode is attempted.
+        """
+        import cv2
+
+        image = self._detailed_image(seed=3)
+        archived = self._write_jpeg(
+            self.month_dir / "IMG_20210510_120254911_Nicole.jpg", image, 90)
+        cropped = image[:240, :320]
+        source = self._write_jpeg(
+            self.incoming / "IMG_20210510_120254911.jpg", cropped, 95)
+
+        detector = self._detector()
+
+        self.assertFalse(
+            detector._is_same_photograph(source, archived),
+            "different dimensions can never be the same photograph"
+        )
+
+    def test_within_size_tolerance_still_uses_the_fast_path(self):
+        """Close sizes must not pay for an SSIM decode."""
+        image = self._detailed_image(seed=4)
+        archived = self._write_jpeg(
+            self.month_dir / "IMG_20210510_120254911_Nicole.jpg", image, 90)
+        source = self._write_jpeg(
+            self.incoming / "IMG_20210510_120254911.jpg", image, 90)
+
+        detector = self._detector()
+        result = detector.find_duplicate(source)
+
+        self.assertTrue(result.is_duplicate)
+        self.assertEqual(detector._ssim_cache, {}, "no SSIM should have been computed")
+
+    def test_ssim_verdict_is_cached_and_persisted(self):
+        """
+        Each verdict costs decoding two images, so it must survive the usual
+        dry-run-then-live-run sequence.
+        """
+        image = self._detailed_image(seed=5)
+        self._write_jpeg(self.month_dir / "IMG_20210510_120254911_Nicole.jpg", image, self.ARCHIVED_QUALITY)
+        source = self._write_jpeg(self.incoming / "IMG_20210510_120254911.jpg", image, self.SOURCE_QUALITY)
+
+        detector = self._detector()
+        detector.find_duplicate(source)
+        self.assertEqual(len(detector._ssim_cache), 1)
+        detector.save_caches()
+
+        cache_path = self.temp_dir / 'ssim.json'
+        self.assertTrue(cache_path.exists())
+
+        # A fresh detector must reuse the stored verdict
+        reloaded = self._detector()
+        self.assertEqual(len(reloaded._ssim_cache), 1)
+        result = reloaded.find_duplicate(source)
+        self.assertTrue(result.is_duplicate)
+
+    def test_burst_conflict_still_wins_over_the_ssim_gate(self):
+        """
+        BUG-8 must not be reopened: a conflicting burst index rejects the candidate
+        before the recompression check ever runs, even for the same scene.
+        """
+        image = self._detailed_image(seed=6)
+        self._write_jpeg(
+            self.month_dir / "IMG_20210510_120254911_BURST000_COVER_TOP_Nicole.jpg", image, self.ARCHIVED_QUALITY)
+        source = self._write_jpeg(
+            self.incoming / "IMG_20210510_120254911_BURST001.jpg", image, self.SOURCE_QUALITY)
+
+        result = self._detector().find_duplicate(source)
+
+        self.assertFalse(result.is_duplicate, "a different burst frame must import")
+
+    def test_threshold_boundary_is_respected(self):
+        """
+        _is_same_photograph must follow SAME_PHOTO_SSIM_THRESHOLD rather than a
+        hard-coded value, so the ruling can be retuned in one place.
+        """
+        image = self._detailed_image(seed=7)
+        archived = self._write_jpeg(
+            self.month_dir / "IMG_20210510_120254911_Nicole.jpg", image, self.ARCHIVED_QUALITY)
+        source = self._write_jpeg(
+            self.incoming / "IMG_20210510_120254911.jpg", image, self.SOURCE_QUALITY)
+
+        detector = self._detector()
+        score = detector._structural_similarity(source, archived)
+        self.assertIsNotNone(score)
+
+        with patch.object(duplicate_detector, 'SAME_PHOTO_SSIM_THRESHOLD', score + 0.01):
+            self.assertFalse(detector._is_same_photograph(source, archived))
+
+        with patch.object(duplicate_detector, 'SAME_PHOTO_SSIM_THRESHOLD', score - 0.01):
+            self.assertTrue(detector._is_same_photograph(source, archived))
+
+
+# ============================================================================
+# SECTION 12: Removal History (do-not-resurrect guard)
+# ============================================================================
+
+class TestNormalizeMediaName(unittest.TestCase):
+    """
+    Cover normalize_media_name(), which is the risky half of the removal guard.
+
+    Asymmetric stakes: a name reduced TOO far collides with unrelated files and
+    blocks legitimate imports, while a name left too long merely fails to match and
+    the file is imported for review again. So these tests lean hard on the
+    over-stripping direction.
+
+    A first version used `_\\d+$` for the collision counter and reduced
+    IMG_20240101_120000_Nicole to "img" — every date-stamped file would have
+    collapsed onto one key, blocking the entire import.
+    """
+
+    def _normalize(self, filename):
+        return removal_history.normalize_media_name(filename)
+
+    def test_timestamp_is_never_stripped(self):
+        """The regression that would have blocked everything."""
+        self.assertEqual(
+            self._normalize("IMG_20240101_120000_Nicole.jpg"),
+            "img_20240101_120000"
+        )
+
+    def test_time_group_alone_is_not_taken_for_a_counter(self):
+        self.assertEqual(self._normalize("VID_20210526_162641.mp4"), "vid_20210526_162641")
+
+    def test_stacked_model_person_and_counter(self):
+        """The full suffix stack the pipeline can append."""
+        self.assertEqual(self._normalize("DSCN1234_S3500_Clif_2.JPG"), "dscn1234")
+
+    def test_model_and_person_without_counter(self):
+        self.assertEqual(self._normalize("DSCN1234_S3500_Clif.JPG"), "dscn1234")
+
+    def test_person_suffix_alone(self):
+        self.assertEqual(self._normalize("Opportunities_Clif.jpg"), "opportunities")
+
+    def test_edited_marker_is_preserved(self):
+        """An edited variant is a separate asset from its original."""
+        self.assertEqual(
+            self._normalize("Opportunities-edited_Clif.jpg"),
+            "opportunities-edited"
+        )
+        self.assertNotEqual(
+            self._normalize("Opportunities-edited_Clif.jpg"),
+            self._normalize("Opportunities_Clif.jpg")
+        )
+
+    def test_counter_before_person_suffix(self):
+        """Different code paths append these in different orders."""
+        self.assertEqual(
+            self._normalize("P_20241012_162741_1_Nicole.jpg"),
+            "p_20241012_162741"
+        )
+
+    def test_plain_name_untouched(self):
+        self.assertEqual(self._normalize("geico.jpg"), "geico")
+
+    def test_extension_ignored(self):
+        self.assertEqual(self._normalize("photo.jpg"), self._normalize("photo.jpeg"))
+
+    def test_distinct_timestamps_stay_distinct(self):
+        """The core anti-collision property."""
+        names = {
+            self._normalize(f"IMG_2024010{index}_12000{index}_Nicole.jpg")
+            for index in range(1, 6)
+        }
+        self.assertEqual(len(names), 5, "distinct photos must not share a key")
+
+    def test_full_path_accepted(self):
+        self.assertEqual(
+            self._normalize("/some/where/Organized_Photos/2011/Fence-edited_Clif.jpeg"),
+            "fence-edited"
+        )
+
+
+class TestRemovalHistory(unittest.TestCase):
+    """Cover script parsing and the was_removed() lookup."""
+
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _write_script(self, name, body):
+        path = self.temp_dir / name
+        path.write_text(body)
+        return path
+
+    def test_parses_double_quoted_paths(self):
+        """The style every existing exported script uses."""
+        script = self._write_script("2026-02-10 remove_photos.sh", (
+            '#!/bin/bash\n'
+            '# Photo Triage - Files to Remove\n'
+            '\n'
+            'rm "/archive/2009/Opportunities-edited_Clif.jpg"\n'
+            'rm "/archive/2011/Fence-edited_Clif.jpeg"\n'
+        ))
+
+        paths = removal_history.parse_removal_script(script)
+
+        self.assertEqual(paths, [
+            "/archive/2009/Opportunities-edited_Clif.jpg",
+            "/archive/2011/Fence-edited_Clif.jpeg",
+        ])
+
+    def test_parses_single_quoted_paths_with_escapes(self):
+        """The style produced after the shell-injection fix."""
+        script = self._write_script("remove_photos.sh", (
+            "#!/bin/bash\n"
+            "rm '/archive/2011/Nicole'\\''s photo.jpg'\n"
+            "rm '/archive/2011/plain.jpg'\n"
+        ))
+
+        paths = removal_history.parse_removal_script(script)
+
+        self.assertEqual(paths, [
+            "/archive/2011/Nicole's photo.jpg",
+            "/archive/2011/plain.jpg",
+        ])
+
+    def test_non_rm_lines_ignored(self):
+        script = self._write_script("remove_photos.sh", (
+            '#!/bin/bash\n'
+            '# Files: 1\n'
+            'echo "starting"\n'
+            'rm "/archive/keep.jpg"\n'
+        ))
+
+        self.assertEqual(removal_history.parse_removal_script(script), ["/archive/keep.jpg"])
+
+    def test_missing_script_returns_empty(self):
+        self.assertEqual(
+            removal_history.parse_removal_script(self.temp_dir / "absent.sh"),
+            []
+        )
+
+    def test_history_matches_across_suffix_differences(self):
+        """
+        The point of the whole module: a file removed under its archived name must
+        be recognized when it arrives again under its source name.
+        """
+        self._write_script("remove_photos.sh",
+                           'rm "/archive/2013/DSCN1234_S3500_Clif.JPG"\n')
+
+        history = removal_history.RemovalHistory.from_directory(self.temp_dir)
+
+        self.assertTrue(history.was_removed("DSCN1234.JPG"))
+        self.assertTrue(history.was_removed("DSCN1234_S3500.JPG"))
+        self.assertFalse(history.was_removed("DSCN9999.JPG"))
+
+    def test_multiple_scripts_are_merged(self):
+        self._write_script("a remove_photos.sh", 'rm "/archive/one_Clif.jpg"\n')
+        self._write_script("b remove_photos.sh", 'rm "/archive/two_Nicole.jpg"\n')
+
+        history = removal_history.RemovalHistory.from_directory(self.temp_dir)
+
+        self.assertTrue(history.was_removed("one.jpg"))
+        self.assertTrue(history.was_removed("two.jpg"))
+        self.assertEqual(len(history.sources), 2)
+
+    def test_absent_directory_yields_empty_history(self):
+        """No scripts must mean no blocking, never an error."""
+        history = removal_history.RemovalHistory.from_directory(self.temp_dir / "nope")
+
+        self.assertEqual(len(history), 0)
+        self.assertFalse(history.was_removed("anything.jpg"))
+
+    def test_empty_history_blocks_nothing(self):
+        history = removal_history.RemovalHistory()
+
+        self.assertFalse(history.was_removed("IMG_20240101_120000.jpg"))
+
+    def test_only_matching_glob_is_read(self):
+        """Unrelated shell scripts in the directory must be left alone."""
+        self._write_script("remove_photos.sh", 'rm "/archive/blocked_Clif.jpg"\n')
+        self._write_script("backup.sh", 'rm "/archive/unrelated_Clif.jpg"\n')
+
+        history = removal_history.RemovalHistory.from_directory(self.temp_dir)
+
+        self.assertTrue(history.was_removed("blocked.jpg"))
+        self.assertFalse(history.was_removed("unrelated.jpg"))
 
 
 # ============================================================================

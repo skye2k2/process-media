@@ -448,6 +448,115 @@ Ladder crops are exported to `.TMP_calibration/ladder/` as lossless PNG, named w
 - **`find_duplicate()` picks an arbitrary sibling.** When several archived files share one timestamp, candidates are examined in index order, so which one a source is compared against depends on index ordering. In this case a full-resolution original and a `~2` crop shared a timestamp and the crop came first. Minor, but it makes some verdicts order-dependent.
 - For the calibration photo, the full-resolution original is **already archived** at 4,356,523 bytes against the PhotoSync original's 4,356,524 — a one-byte difference. Some PhotoSync files are already present at full quality, reinforcing that prevalence needs proper measurement.
 
+## Overnight analysis results (2026-07-31) — read this first
+
+Five phases, all completed, 25 minutes total. Logs in `.TMP_overnight/`.
+
+### 🔴 BLOCKER: do not run the PhotoSync import yet
+
+The dry-run reports **4,466 files it would import as new**. They are not new. Classifying all 4,403 photos among them:
+
+| what it actually is | count | share |
+|---|---|---|
+| Has a **same-dimension** archived counterpart | 3,725 | 84.6% |
+| Genuinely new | 372 | 8.4% |
+| No date pattern (identity settled by content hash) | 278 | 6.3% |
+| Non-photo (video/other) | 15 | 0.3% |
+| Different dimensions (crop/resize) | 13 | 0.3% |
+| Truncated/unreadable | 0 | — |
+
+The cause: `find_duplicate()`'s size gate is only 20% wide, and these PhotoSync originals are 1.2× to 8× larger than their archived counterparts. They fall outside the gate, so nothing claims them and they are reported as new. **The 0.92 SSIM ruling says the archived copy should be kept — but nothing implements that ruling yet.** Running the import as-is would create thousands of near-duplicate pairs.
+
+**Caveat on that 84.6%:** "has a same-dimension archived counterpart" is a proxy, and burst frames satisfy it too. Two examples came back at ratio 0.98× and 1.00× — those are distinct burst frames that the v14 fix now correctly wants to import. So the true recompression-duplicate count is 3,725 minus however many are ratio ≈1.0 distinct frames. The recompressions are the ones at ratio ≥ 1.2, previously measured at 3,738.
+
+**Required before importing:** implement the ruling — for a photo candidate with identical dimensions whose size gate fails, compare perceptually and treat SSIM ≥ 0.92 as the same photograph, keeping the archived copy. Cost note: SSIM at full resolution is ~1–2 s per pair, so ~1–2 hours for this batch. Decoding at reduced scale (JPEG DCT scaling, PIL `draft()`) should cut that by roughly an order of magnitude and is worth validating first.
+
+### 2021 Google archive: 91% already present
+
+First look at `/Volumes/photosync/2021GooglePhotoArchive` (38 GB, ~13,900 files processed): **12,612 skipped, 1,277 would import.** So the overlap is high, as hoped.
+
+Those 1,277 have **not** yet been classified the way PhotoSync's were, and the same recompression trap almost certainly applies — this is the archive that predates Google's storage-saver downsizing, so its originals should be *larger* than what is archived. Classify before importing.
+
+### ✅ BUG-8 fix validated at scale
+
+Full audit across all of PhotoSync rather than a 600-file sample: **3,780 skip decisions, 3,775 genuine duplicates, 5 flagged (0.1%)** — down from 2.8%.
+
+Investigating the 5: they are all "dimension mismatch" rather than low-SSIM, and at least some are **false positives of the audit itself**. `20220920_203816.jpg` has an identical byte count in both places and differs only in its EXIF orientation tag (3 vs 6) — the pipeline rewrote orientation, so OpenCV applies a different rotation and the decoded shapes disagree while the photograph is the same. One is a genuine residual collision: `IMG_20220704_152930970.jpg` shares a date pattern *and* millisecond field with a different archived photo (1494×2228 vs 4032×3024) whose byte size coincides within 4 bytes. The discriminators cannot help there — and that source is truncated anyway.
+
+**Residual risk, accepted for now:** two distinct photographs in the same second, with matching millisecond fields, no burst markers, and sizes within 20%. Rare enough that one instance appeared in 3,780 decisions.
+
+### Corrupt source files exist
+
+`IMG_20220704_152930970.jpg` on PhotoSync fails a full decode — "image file is truncated (17 bytes not processed)". Its archived counterpart is healthy. None of the 4,403 would-import files are truncated, so this is not widespread, but a decode-health check over the source tree is worth adding before a real import so damaged files are quarantined rather than silently imported.
+
+### ✅ Review backlog is unblocked
+
+`auto-triage --dry-run` over the whole archive completed in 72 s because the cache was already warm: 35,050 images scanned, only 2,034 needed new hashes, 33,016 came from cache, 1,064 perceptually similar pairs found, blur computed across 453 folders.
+
+Cache coverage now: **35,845 blur / 53,087 md5 / 48,509 phash** entries. The review reports will generate without waiting on analysis.
+
+It also surfaced triage candidates: **96 blurry photos that have a sharp alternative** (safe auto-triage candidates) and **613 blurry with no alternative** (need a human decision).
+
+---
+
+### ✅ Nikon NAS deletion: fully verified (2026-07-31)
+
+All **4,491** of 4,491 claimed byte-identical pairs were compared individually with `filecmp` at `shallow=False` — a real byte comparison, no hashing trusted anywhere in the chain. **4,491 identical, 0 differing, 0 unreadable**, in 153 seconds. This upgrades the earlier 40-pair spot check to complete coverage.
+
+**CLEARED TO DELETE.** Both outstanding caveats were resolved by the user on 2026-07-31:
+
+1. ~~The 11 `.AVI` originals exist locally only as lossy H.265 transcodes.~~ **Accepted** — the transcodes are fine as the only surviving assets.
+2. ~~The NAS copy spans both cameras, so a single-camera SD card would leave one without redundancy.~~ **Not an issue** — there was only ever **one SD card**. When the point-and-shoot was replaced, the card moved to the new body, which accepted the existing format and carried on. So the single card is a complete source for both the 530 `_S3100` and 3,972 `_S3500` files.
+
+After deletion, this content still exists in two independent places: `Organized_Photos/` locally (JPGs byte-identical, AVIs as transcodes) and the original SD card. The one remaining note is that `Organized_Photos/` has not yet been copied to the NAS and is still being pruned during review, so the local drive plus the SD card are the two copies until that transfer happens.
+
+Evidence: `.TMP_overnight/01_nikon_full_byte_verify.log`.
+
+### ✅ BUG-8 FIXED in v14 — was 2.8% of skips, now 0%
+
+**Found 2026-07-30 while exporting the full similars set; fixed the same night.** Verified by re-running the same 600-file audit: 600 genuine duplicates, **0 wrong matches**, with no regression in the true-positive rate.
+
+The fix is filename-based (`extract_frame_signature`, `frame_signatures_conflict`), because perceptual hashing was measured and **rejected** — across 500 real skip decisions, true duplicates scored a pHash distance of 0 in every case while mispairings scored 0 to 16, including one at exactly 0 with an SSIM of 0.7597. Burst frames *are* the same scene, which is precisely what pHash is built to call identical. See CHANGELOG v14.
+
+The description below is retained because the mechanism is worth understanding.
+
+`extract_date_pattern()` captures only `YYYYMMDD_HHMMSS`. Pixel filenames carry more than that, and two separate mechanisms defeat the pattern:
+
+1. **Milliseconds are discarded.** `IMG_20210616_120804026.jpg` and `IMG_20210616_120804916_Nicole.jpg` are different photographs taken in the same second, but both reduce to `20210616_120804`.
+2. **Burst frames share everything but the burst index.** `IMG_20210908_190213263_BURST000_COVER_TOP.jpg` and `IMG_20210908_190213263_BURST001_Nicole.jpg` have *identical* timestamps down to the millisecond and differ only in `_BURST###`. The date pattern cannot distinguish them at all.
+
+`find_duplicate()` then walks the candidates for that pattern and, for a photo, accepts the first whose size falls within `size_tolerance` (20%). Burst frames of the same scene compress to almost identical sizes, so the gate passes and the source is declared a duplicate and **skipped**.
+
+**Measured on 600 PhotoSync files that the importer would skip:**
+
+| outcome | count |
+|---|---|
+| Matched a genuine duplicate (SSIM ≥ 0.90) | 583 |
+| **Matched the WRONG photograph** | **17 (2.8%)** |
+
+SSIM of the false matches ran from **0.2244** to 0.7999 — these are plainly different pictures. Many were reported as "exact size". Examples:
+
+```
+SSIM 0.2244  IMG_20210608_131933548_BURST001.jpg
+     matched IMG_20210608_131933548_BURST000_COVER_TOP_Nicole.jpg   "exact size"
+SSIM 0.7359  IMG_20210616_120804026.jpg
+     matched IMG_20210616_120804916_Nicole.jpg                      "exact size"
+```
+
+The archive holds **562 date patterns that map to more than one archived file** (of 26,916) — each one a second containing two or more distinct photos, and therefore an opportunity for this mispairing.
+
+**Impact.** At 2.8% of skipped files, the PhotoSync import alone would silently drop on the order of 200 distinct photographs. This is the one failure mode the whole design is meant to prevent. It is also not new — the same logic governed every previous import, so earlier Takeout runs may already have dropped burst frames. Those sources still exist, so it is recoverable, but it needs checking after the fix.
+
+Note this does **not** affect the Nikon result: those 4,491 files matched byte-identically via the v12 content-hash path, which cannot mispair.
+
+**Fix approach.** Name-based matching alone must never be sufficient to discard a file.
+
+1. *Cheap string discriminators, free:* if two filenames carry different millisecond fields, or different `_BURST###` indices, they are not the same photograph — reject the candidate outright. This alone catches all 17 observed cases.
+2. *Content verification, the real guard:* when a date-pattern candidate is not byte-identical, require a perceptual check (`compute_phash` plus hamming distance, both already present) before declaring a duplicate. This closes the general case rather than the two known spellings of it.
+3. Do both: (1) as a fast reject, (2) as the authority.
+
+Tests should cover burst-index collision, millisecond collision, and the byte-identical path remaining unaffected.
+
 ### RULING SUPERSEDED (2026-07-30, later the same day): floor lowered to 0.92
 
 After reviewing the full 25-pair set including `pair01` at SSIM **0.9282** — the worst real recompression found anywhere in the data — the user reported still being unable to care about the difference. The 0.96 figure below was a first pass; the operative rule is now:
@@ -473,7 +582,29 @@ Edge density is explicitly **not** a criterion (it moves ≤1% across the entire
 
 On the 25-pair review set (worst-SSIM-first, range 0.9282–0.9722), this rule keeps the original for **19 of 25**. Note the consequence: every one of the high-ratio Google recompressions measured so far falls below 0.96, so in practice this rule preserves the original for essentially all of the *badly* recompressed pairs while still discarding the originals of mildly recompressed ones.
 
-### Prevalence: ~3.4%, and the earlier doubt was my own bug
+### Prevalence, measured over the FULL tree (supersedes both earlier estimates)
+
+The whole PhotoSync `Photo Uploads` tree was finally walked rather than sampled: **8,254 photos**, of which **7,579 (91.8%) have a timestamp match** in the archive.
+
+| class | count | share of matches |
+|---|---|---|
+| Same dimensions, size ratio ≥ 1.2 | 3,738 | 49.3% |
+| Different dimensions (crops/resizes) | 16 | 0.2% |
+
+SSIM across the 3,738 same-dimension pairs spans **0.1611 to 0.9942**, with **86 below the 0.92 floor** and 96 below 0.9282.
+
+**Both earlier prevalence figures were wrong, for different reasons — worth recording so the mistake is not repeated:**
+
+- The "600 pairs found immediately" panic came from comparing against the *first* archived file sharing a timestamp without checking dimensions, so crops and `~N` variants were counted as recompressions.
+- The "3.38%" correction was also wrong. `.TMP_export_review_set.py` breaks out of its scan as soon as it collects `ANALYZE_LIMIT` (40) candidates, so "40 out of 1,180 scanned" was a *stop-at-N artifact*, not a rate over a complete prefix. The other difference was the ratio floor: 3.4% holds at ratio ≥ 1.5, while ratio ≥ 1.2 gives 49%. Most pairs sit in the mild 1.2–1.5 band, which is consistent with Google having applied light recompression broadly and heavy recompression rarely.
+
+**Lesson:** a sampling loop with an early-exit condition does not produce a rate. Either scan a complete prefix or scan everything.
+
+**Practical consequence is unchanged.** Pairs in the 1.2–1.5 band have SSIM near 0.99, so the 0.92 floor keeps the archived copy for essentially all of them. Only 86 of 3,738 fall below the floor and would keep the original.
+
+Also of note: the low end of that SSIM range is **not** heavy recompression — it is BUG-8 above mispairing burst frames. The 0.1611 entry is two different photographs.
+
+### Earlier estimate, retained for the reasoning: ~3.4%
 
 **Measured:** 40 same-dimension pairs at ratio ≥ 1.5 out of 1,180 timestamp matches = **3.38%**. This confirms the original 3.3% estimate.
 
