@@ -343,58 +343,6 @@ def get_creation_date(file_path, exif_cache=None):
 
 
 # ============================================================================
-# DUPLICATE DETECTION
-# ============================================================================
-
-def find_existing_by_date(creation_date, file_size, file_index):
-    """
-    Find existing files that match the creation date.
-
-    Handles multiple naming conventions by matching on date pattern.
-    Size tolerance of 5% to account for metadata differences.
-
-    Args:
-        creation_date: datetime of the source file
-        file_size: Size of source file in bytes
-        file_index: Index from build_file_index
-
-    Returns:
-        Path if match found, None otherwise
-    """
-    if not creation_date:
-        return None
-
-    # Build date pattern: YYYYMMDD_HHMMSS
-    date_pattern = creation_date.strftime("%Y%m%d_%H%M%S")
-
-    # Size tolerance
-    min_size = file_size * 0.95
-    max_size = file_size * 1.05
-
-    for (base_name, ext, is_edited), paths in file_index.items():
-        # Skip edited versions
-        if is_edited:
-            continue
-
-        # Check if filename contains the date pattern
-        if date_pattern not in base_name:
-            continue
-
-        existing_path = paths[0]
-
-        if not existing_path.exists():
-            continue
-
-        # Check size similarity
-        existing_size = existing_path.stat().st_size
-
-        if min_size <= existing_size <= max_size:
-            return existing_path
-
-    return None
-
-
-# ============================================================================
 # FILE ORGANIZATION
 # ============================================================================
 
@@ -1002,7 +950,7 @@ Examples:
         print(f"  Videos -> {VIDEO_OUTPUT_DIR}")
 
     # Save the duration cache for faster future runs
-    detector.save_duration_cache()
+    detector.save_caches()
 
     print("")
     return 0 if failed_count == 0 else 1

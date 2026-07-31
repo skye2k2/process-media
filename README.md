@@ -9,6 +9,31 @@ Media organization and conversion tools for consolidating family photos and vide
 
 All workflows use a unified `TO_PROCESS/` input directory and shared `Organized_Photos/` and `Organized_Videos/` output directories.
 
+---
+
+## Setup
+
+Python dependencies live in a **project-local virtual environment**. This is not optional convenience: a Homebrew upgrade to Python 3.14 previously orphaned the globally-installed packages, and because `photo_triage.py` exits immediately when OpenCV is unavailable, the entire photo review workflow was silently disabled for months. Pinning inside `.venv/` makes the toolchain immune to system Python churn.
+
+```bash
+# One-time setup
+brew install exiftool ffmpeg          # external tools, not pip-managed
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+
+# Verify the install (should report "Ran 75 tests ... OK" with no OpenCV warning)
+.venv/bin/python test_core.py
+```
+
+Run **every** script through the venv interpreter, not bare `python3`:
+
+```bash
+.venv/bin/python workflow_review.py --open
+.venv/bin/python workflow_archive.py TO_PROCESS/NIKON --dry-run
+```
+
+If you see `WARNING: OpenCV not installed`, you are running the system Python instead of `.venv/bin/python`. Blur scoring, perceptual-hash duplicate detection, and SSIM comparison all depend on OpenCV, so that warning means quality analysis is silently unavailable.
+
 <!--
 
 The code in organize_media.py was initially written by Claude Sonnet 4.5, and took a few combined prompts to get started:
@@ -573,7 +598,8 @@ This presents an interactive menu with available actions:
    - Automatic dense-day event detection (run after holidays, so no overlap):
      - Any day with ≥35 photos qualifies; consecutive qualifying days merge into one span
      - Folder name: `MM-DD Event` or `MM-DD–MM-DD Event` (no year prefix — already implicit in the containing year directory)
-     - Threshold is tunable: `--event-threshold N` (0 disables cluster detection entirely)
+     - Threshold is tunable: `--event-threshold N` (0 disables *discovery* of new clusters; adoption still runs, see below)
+   - **Re-run safety (adoption):** loose photos whose day already has an event folder are moved into that existing folder regardless of the threshold, shown as `[into existing]` in the output. This matters when re-running after a new import: without it, a batch that adds only a handful of photos to an already-filed day would leave them stranded loose in the month folder, and a batch that adds *many* photos to a day covered by a span folder would create a competing sibling folder splitting one event in two. Named holiday/birthday folders already merged by name, so this only affected `MM-DD Event` folders.
    - Only considers direct children of `MM MonthName` folders — photos already in any sub-folder are never touched
    - Any `.supplemental-metadata[...].json` sidecar files are co-moved with their photo
    - Analysis cache entries (blur, hashes, EXIF date) travel with moved files — no re-analysis needed afterward

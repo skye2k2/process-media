@@ -19,6 +19,7 @@ For project architecture, definitions, scope, and associated commands, see [READ
 ## Development Workflow (to minimize regressions):
 
 - Check `requirements.txt` and package imports before making changes
+- **Always invoke scripts as `.venv/bin/python script.py`, never bare `python3`.** Dependencies are pinned in a project-local `.venv/` (see README "Setup"). Bare `python3` resolves to the Homebrew interpreter, which has no OpenCV — and `photo_triage.py` exits immediately when OpenCV is missing, so the whole review workflow appears "broken" for an environment reason rather than a code reason. If you see `WARNING: OpenCV not installed`, you used the wrong interpreter.
 - **Read existing code thoroughly** - Before modifying any code, read through ALL functions and code paths that will be affected by the change. Trace the full execution flow to understand side effects. Static analysis linting warnings and errors are often very insightful as to what may have been missed, so check them first, especially applying auto-fixes.
 - **Test-Driven Development preference** - When starting new projects or major features or beginning rewrites, suggest writing/updating tests first. For existing code without tests, offer to create test coverage before making risky changes. Tests really do prevent many kinds of avoidable regressions.
 - **Ask clarifying questions up front** - When requirements are ambiguous or incomplete, ask specific questions before implementing. Don't guess and hope we will correct you after seeing the broken result.

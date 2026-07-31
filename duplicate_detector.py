@@ -34,8 +34,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+from analyze_photo_quality import compute_md5, get_analysis_cache, save_all_caches
 from build_file_index import build_file_index
 from media_utils import VIDEO_EXTENSIONS
+
+# Hashes of incoming source files, stored beside this module rather than in the
+# source tree. See DuplicateDetector._hash_source() for the rationale.
+SOURCE_HASH_CACHE_FILE = ".source_hash_cache.json"
 
 
 class MatchConfidence(Enum):
@@ -287,7 +292,8 @@ class DuplicateDetector:
         photo_dir: Path,
         video_dir: Path,
         duration_tolerance: float = 1.0,
-        size_tolerance: float = 0.20
+        size_tolerance: float = 0.20,
+        source_hash_cache: Optional[Path] = None
     ):
         """
         Initialize the detector.
@@ -297,6 +303,9 @@ class DuplicateDetector:
             video_dir: Path to organized videos
             duration_tolerance: Max duration difference (seconds) for match
             size_tolerance: Size difference ratio (0.20 = 20%) for "similar"
+            source_hash_cache: Override the location of the source-hash cache.
+                               Defaults to .source_hash_cache.json beside this
+                               module. Injectable so tests need not write there.
         """
         self.photo_dir = Path(photo_dir)
         self.video_dir = Path(video_dir)
@@ -308,6 +317,18 @@ class DuplicateDetector:
         self._duration_cache = self._load_duration_cache()
         self._cache_dirty = False
 
+        # Hashes of INCOMING files, kept in a project-local file rather than in
+        # the source tree — see _hash_source() for why the source tree is off
+        # limits. This survives the usual dry-run-then-live-run sequence, which
+        # would otherwise read every source byte twice (over 100 GB across the
+        # pending import backlog, much of it over a network share).
+        if source_hash_cache is None:
+            source_hash_cache = Path(__file__).parent / SOURCE_HASH_CACHE_FILE
+
+        self._source_hash_path = Path(source_hash_cache)
+        self._source_hashes = self._load_source_hashes()
+        self._source_hashes_dirty = False
+
         # Build file index
         self.file_index = build_file_index(
             photo_dir=self.photo_dir,
@@ -316,6 +337,11 @@ class DuplicateDetector:
 
         # Build a secondary index by date pattern for faster lookups
         self._date_pattern_index = self._build_date_pattern_index()
+
+        # Built on first use by _get_size_index(). Deferred because a run whose
+        # files all match on date pattern never needs it, and building it costs a
+        # stat() per archived file.
+        self._size_index = None
 
     def _build_date_pattern_index(self) -> dict[str, list[Path]]:
         """Build index mapping date patterns to file paths."""
@@ -332,6 +358,213 @@ class DuplicateDetector:
 
         return index
 
+    def _get_size_index(self) -> dict[int, list[Path]]:
+        """
+        Lazily build an index mapping file size to archived paths.
+
+        Size is the cheap pre-filter for content-hash matching: byte-identical
+        files necessarily have identical length, so hashing can be confined to
+        the handful of archived files that share the source's exact size. This
+        avoids hashing the whole archive (over 150 GB) to answer one question.
+
+        Returns:
+            dict of {size_in_bytes: [Path, ...]}
+        """
+        if self._size_index is not None:
+            return self._size_index
+
+        index = {}
+
+        for paths in self.file_index.values():
+            for path in paths:
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    # Vanished or unreadable between indexing and now — skip
+                    continue
+
+                index.setdefault(size, []).append(path)
+
+        self._size_index = index
+        return index
+
+    def _get_cached_md5(self, file_path: Path) -> Optional[str]:
+        """
+        Return the MD5 of an ARCHIVED file, reusing the analysis cache.
+
+        The per-directory .analysis_cache.json files already hold MD5s computed
+        by photo triage, so most archived files can be checked without re-reading
+        their contents. A freshly computed hash is written back for next time.
+
+        Cache entries are invalidated by mtime/size, so a file replaced since it
+        was hashed is re-read rather than trusted.
+
+        Only ever call this for files inside the organized archive. Source files
+        awaiting import must use _hash_source() instead — see the note there.
+
+        Args:
+            file_path: Path to an archived file
+
+        Returns:
+            str: MD5 hex digest, or None if the file could not be read
+        """
+        cache = get_analysis_cache(file_path.parent)
+        cached = cache.get_md5(file_path)
+
+        if cached:
+            return cached
+
+        try:
+            digest = compute_md5(file_path)
+        except OSError:
+            return None
+
+        cache.set_md5(file_path, digest)
+        return digest
+
+    def _load_source_hashes(self) -> dict:
+        """
+        Load the source-hash cache, tolerating absence or corruption.
+
+        Returns:
+            dict of {absolute_path: {"mtime": float, "size": int, "md5": str}}
+        """
+        if not self._source_hash_path.exists():
+            return {}
+
+        try:
+            with open(self._source_hash_path, 'r') as handle:
+                loaded = json.load(handle)
+
+        except (json.JSONDecodeError, OSError):
+            # A truncated cache is not worth diagnosing — recompute instead
+            return {}
+
+        if not isinstance(loaded, dict):
+            return {}
+
+        return loaded
+
+    def save_source_hashes(self):
+        """
+        Persist the source-hash cache, dropping entries for vanished files.
+
+        Pruning matters because the normal outcome of an import is that the
+        source file MOVES into the archive, leaving its entry permanently dead.
+        Without pruning the file would grow without bound across imports.
+        """
+        if not self._source_hashes_dirty:
+            return
+
+        surviving = {
+            key: entry for key, entry in self._source_hashes.items()
+            if Path(key).exists()
+        }
+
+        try:
+            with open(self._source_hash_path, 'w') as handle:
+                json.dump(surviving, handle, indent=2)
+
+            self._source_hashes = surviving
+            self._source_hashes_dirty = False
+
+        except OSError as error:
+            print(f"  WARNING: Could not save source hash cache: {error}")
+
+    def _hash_source(self, file_path: Path) -> Optional[str]:
+        """
+        Hash an incoming source file, caching outside the source tree.
+
+        The source tree itself is never written to. It is frequently a mounted
+        NAS share or a memory card — possibly read-only, and writing there would
+        both violate --dry-run and put avoidable wear on the NAS drives. So the
+        hash is recorded in a project-local file instead.
+
+        Entries are validated by mtime and size, exactly like the analysis cache,
+        so a source file edited or swapped between runs is re-read.
+
+        Args:
+            file_path: Path to the incoming file
+
+        Returns:
+            str: MD5 hex digest, or None if the file could not be read
+        """
+        try:
+            stat_result = file_path.stat()
+        except OSError:
+            return None
+
+        key = str(file_path.resolve())
+        entry = self._source_hashes.get(key)
+
+        if (
+            isinstance(entry, dict)
+            and entry.get('mtime') == stat_result.st_mtime
+            and entry.get('size') == stat_result.st_size
+            and entry.get('md5')
+        ):
+            return entry['md5']
+
+        try:
+            digest = compute_md5(file_path)
+        except OSError:
+            return None
+
+        self._source_hashes[key] = {
+            'mtime': stat_result.st_mtime,
+            'size': stat_result.st_size,
+            'md5': digest,
+        }
+        self._source_hashes_dirty = True
+
+        return digest
+
+    def _find_identical_by_content(
+        self, source_path: Path, source_size: int
+    ) -> Optional[Path]:
+        """
+        Find an archived file byte-identical to source_path.
+
+        This is the fallback for files that name-based matching cannot see, which
+        is 26% of the archive: anything without a YYYYMMDD_HHMMSS stamp in its
+        filename. Organized Nikon files are named DSCN3089_S3500.JPG, so without
+        this, re-ingesting the same SD card imports every photo a second time
+        (see BUG-6).
+
+        Content hashing is used rather than a date+size heuristic because a false
+        positive here means silently discarding a genuinely new photo. Byte
+        equality carries no such risk. Re-encoded or resized near-duplicates are
+        deliberately out of scope — the perceptual-hash pass in photo_triage.py
+        handles those during review.
+
+        Args:
+            source_path: Incoming file to check
+            source_size: Size of source_path in bytes (already stat'ed by caller)
+
+        Returns:
+            Path of the matching archived file, or None
+        """
+        candidates = self._get_size_index().get(source_size, [])
+
+        if not candidates:
+            return None
+
+        source_md5 = self._hash_source(source_path)
+
+        if source_md5 is None:
+            return None
+
+        # Sorted for determinism: the same inputs must always name the same
+        # match, so dry-run output matches the subsequent live run.
+        for candidate_path in sorted(candidates):
+            if candidate_path == source_path:
+                continue
+
+            if self._get_cached_md5(candidate_path) == source_md5:
+                return candidate_path
+
+        return None
+
     def _load_duration_cache(self) -> dict:
         """
         Load the duration cache from disk.
@@ -347,6 +580,20 @@ class DuplicateDetector:
                 pass
 
         return {}
+
+    def save_caches(self):
+        """
+        Persist every cache this detector may have dirtied.
+
+        Content-hash deduplication writes MD5s into the per-directory
+        .analysis_cache.json files. Without a flush those hashes are recomputed on
+        every run — including twice for the common --dry-run-then-live-run
+        sequence, over an archive of more than 150 GB. Callers that previously
+        only saved the duration cache should call this instead.
+        """
+        self.save_duration_cache()
+        self.save_source_hashes()
+        save_all_caches()
 
     def save_duration_cache(self):
         """
@@ -447,22 +694,52 @@ class DuplicateDetector:
                 reason="Source file does not exist"
             )
 
+        source_size = source_path.stat().st_size
+
         # Extract date pattern from source filename
         date_pattern = extract_date_pattern(source_path.name)
 
+        # Files with no date in the filename (DSCN*, DSC_*, IMG_####, and every
+        # scanned or hand-named image) cannot be matched by name at all. Fall
+        # straight through to content hashing — see BUG-6.
         if not date_pattern:
+            identical = self._find_identical_by_content(source_path, source_size)
+
+            if identical is not None:
+                return DuplicateResult(
+                    is_duplicate=True,
+                    confidence=MatchConfidence.EXACT,
+                    existing_path=identical,
+                    prefer_existing=True,
+                    reason=f"Byte-identical to {identical.name} (no date in filename)"
+                )
+
             return DuplicateResult(
                 is_duplicate=False,
                 confidence=MatchConfidence.NONE,
                 existing_path=None,
                 prefer_existing=False,
-                reason="No date pattern in filename"
+                reason="No date pattern in filename, and no identical content in archive"
             )
 
         # Find candidates with matching date pattern
         candidates = self._date_pattern_index.get(date_pattern, [])
 
         if not candidates:
+            # The stamp is present but unknown to the archive. The file may still
+            # be an already-imported photo that was renamed at some point, so
+            # check content before declaring it new.
+            identical = self._find_identical_by_content(source_path, source_size)
+
+            if identical is not None:
+                return DuplicateResult(
+                    is_duplicate=True,
+                    confidence=MatchConfidence.EXACT,
+                    existing_path=identical,
+                    prefer_existing=True,
+                    reason=f"Byte-identical to renamed archive copy {identical.name}"
+                )
+
             return DuplicateResult(
                 is_duplicate=False,
                 confidence=MatchConfidence.NONE,
@@ -471,8 +748,7 @@ class DuplicateDetector:
                 reason=f"No files match date pattern {date_pattern}"
             )
 
-        # Get source file info
-        source_size = source_path.stat().st_size
+        # Get remaining source file info
         is_video = source_path.suffix.lower() in {e.lower() for e in VIDEO_EXTENSIONS}
         source_duration = self._get_duration(source_path) if is_video else None
 

@@ -5,6 +5,14 @@ Organized_Photos/
 Organized_Videos/
 TO_PROCESS/
 
+# Temporary ad-hoc analysis scripts and their output logs
+.TMP_*
+
+# Generated caches (recomputable; keyed by absolute path so not portable)
+.analysis_cache.json
+.duration_cache.json
+.source_hash_cache.json
+
 
 # Environments
 .env

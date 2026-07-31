@@ -99,6 +99,17 @@ _FILENAME_DATE_RE = re.compile(
 # Month folder names keyed by 1-based month number (derived from media_utils).
 _MONTH_FOLDER = {i + 1: MONTH_NAMES[i] for i in range(12)}
 
+# Matches cluster folder names this script generates: "MM-DD Event" for a single
+# day and "MM-DD–MM-DD Event" for a span. The span separator is an EN DASH
+# (U+2013), not a hyphen — a hyphen would be ambiguous against the MM-DD parts.
+# Used to recognize days that already own an event folder so a later import can
+# be routed into it instead of stranding files beside it (see BUG-5).
+CLUSTER_FOLDER_PATTERN = re.compile(
+    r'^(\d{2})-(\d{2})'            # MM-DD start
+    r'(?:–(\d{2})-(\d{2}))?'       # optional en-dash MM-DD span end
+    r' Event$'
+)
+
 
 # ============================================================================
 # DATE COMPUTATION
@@ -353,6 +364,75 @@ def _collect_direct_photos(month_folder):
     return sorted(files)
 
 
+def map_days_to_cluster_folders(month_folder, year):
+    """
+    Report which calendar days already own a cluster ("MM-DD Event") folder.
+
+    Exists to fix BUG-5: the per-day cluster threshold is evaluated against
+    loose files only, so a later import that adds a handful of photos to a day
+    that already has an event folder would leave them stranded loose in the
+    month folder, sitting right next to the folder they belong in. Knowing which
+    days are already claimed lets those files be adopted regardless of count.
+
+    Only folders this script generates are recognized. Named holiday/birthday
+    folders ("2024 Christmas") are deliberately excluded — the holiday pass
+    already merges into those by name — and hand-named folders ("Escape Room")
+    must never be treated as cluster folders.
+
+    Args:
+        month_folder: Path to a month folder (e.g., "07 July")
+        year:         Four-digit integer year that month_folder belongs to,
+                      needed because folder names carry only MM-DD
+
+    Returns:
+        dict mapping date -> Path of the owning folder. A span folder maps every
+        day it covers, inclusive of both endpoints.
+    """
+    claimed = {}
+
+    if not month_folder.is_dir():
+        return claimed
+
+    # Sorted so that when two folders somehow claim the same day, the winner is
+    # deterministic rather than dependent on filesystem iteration order.
+    for entry in sorted(month_folder.iterdir()):
+        if not entry.is_dir():
+            continue
+
+        match = CLUSTER_FOLDER_PATTERN.match(entry.name)
+
+        if match is None:
+            continue
+
+        # A folder name can encode an impossible date (e.g. "02-30 Event") if it
+        # was hand-created. Skip rather than raise.
+        try:
+            start = date(year, int(match.group(1)), int(match.group(2)))
+
+            if match.group(3) is None:
+                end = start
+            else:
+                end = date(year, int(match.group(3)), int(match.group(4)))
+
+        except ValueError:
+            continue
+
+        # A span whose end precedes its start is nonsense — ignore it rather
+        # than loop forever or silently claim nothing.
+        if end < start:
+            continue
+
+        current = start
+
+        while current <= end:
+            # setdefault: the first folder to claim a day keeps it, which for a
+            # sorted walk means the earlier-dated folder wins.
+            claimed.setdefault(current, entry)
+            current += timedelta(days=1)
+
+    return claimed
+
+
 def _scan_event_candidates(month_folder, date_window):
     """
     Find direct-child photos in month_folder whose date falls in date_window.
@@ -401,18 +481,29 @@ def _detect_photo_clusters(year_dir, threshold, exclude_paths=None):
     so that already-claimed files are excluded — either physically (execute
     mode, files already moved) or logically (dry-run, via exclude_paths).
 
-    Algorithm:
-        1. Collect all direct-child photos from every month folder in the year,
-           minus any paths in exclude_paths.
-        2. Batch-extract EXIF dates for files not datable from filename.
-        3. Group files by date.
-        4. A day is "dense" if it has >= threshold photos on its own.
-        5. Consecutive dense days are merged into a single span; gaps (even one
-           day with fewer photos) break the span.
+    Runs in two passes:
 
-    This means threshold applies per-day, not to the span total. A ten-day
-    vacation where you shoot 25 photos each day produces one span; two busy
-    single days separated by a quiet day produce two separate single-day spans.
+    **Pass 1 — adoption (BUG-5 fix).** Any loose photo whose day already owns a
+    cluster folder is routed into that existing folder regardless of threshold.
+    Without this, a re-import that adds fewer than `threshold` photos to an
+    already-filed day leaves them stranded loose in the month folder, beside the
+    folder they belong in. Adoption is a correctness repair, not discovery, so it
+    happens even when `threshold` is 0.
+
+    **Pass 2 — discovery.** Unclaimed days go through the original threshold
+    logic:
+        1. Group remaining files by date.
+        2. A day is "dense" if it has >= threshold photos on its own.
+        3. Consecutive dense days merge into a span; a gap breaks the span.
+
+    Threshold applies per-day, not to the span total. A ten-day vacation at 25
+    photos a day produces one span; two busy days separated by a quiet day
+    produce two separate single-day spans.
+
+    Because adopted days are removed from the pool before pass 2, a day next to
+    an existing folder forms its own new folder rather than being absorbed into a
+    renamed span. That is deliberate: silently renaming an existing folder would
+    invalidate any external reference to it.
 
     Folder name format:
         Single day  → "MM-DD Event"        e.g., "07-04 Event"
@@ -420,22 +511,29 @@ def _detect_photo_clusters(year_dir, threshold, exclude_paths=None):
 
     Args:
         year_dir:      Path to the year directory
-        threshold:     Minimum photos on a single day to qualify (0 disables)
+        threshold:     Minimum photos on a single day to qualify for a NEW
+                       cluster folder. 0 disables discovery but not adoption.
         exclude_paths: set of Path objects already claimed by holiday events;
                        used in dry-run mode to avoid phantom overlap
 
     Returns:
-        List of (folder_label, [Path, ...]) tuples, sorted by start date
+        List of (destination_dir, [Path, ...]) tuples. Adoption entries point at
+        folders that already exist; discovery entries name folders that do not
+        exist yet. Nothing is created here — the caller decides.
     """
-    if threshold <= 0:
-        return []
-
     from collections import defaultdict
 
     exclude_paths = exclude_paths or set()
 
-    # Collect all eligible direct-child photos across every month folder
+    try:
+        year = int(year_dir.name)
+    except ValueError:
+        return []
+
+    # Collect eligible direct-child photos and, in the same walk, learn which
+    # days already own a cluster folder.
     all_photos = []
+    claimed_days = {}
 
     for month_folder_name in MONTH_NAMES:
         month_folder = year_dir / month_folder_name
@@ -445,6 +543,9 @@ def _detect_photo_clusters(year_dir, threshold, exclude_paths=None):
             f for f in _collect_direct_photos(month_folder)
             if f not in exclude_paths
         )
+        # setdefault so an earlier month's span keeps a day it already claimed
+        for day, folder in map_days_to_cluster_folders(month_folder, year).items():
+            claimed_days.setdefault(day, folder)
 
     if not all_photos:
         return []
@@ -465,11 +566,35 @@ def _detect_photo_clusters(year_dir, threshold, exclude_paths=None):
     if not date_to_files:
         return []
 
-    # Keep only days that individually meet the per-day threshold
-    dense_days = sorted(d for d, files in date_to_files.items() if len(files) >= threshold)
+    results = []
+
+    # ---- Pass 1: adopt loose files into folders that already own their day ----
+    # Grouped by destination folder so a span folder yields one entry covering
+    # every day it claims, rather than one entry per day.
+    adopted = {}
+
+    for file_date in sorted(date_to_files):
+        existing_folder = claimed_days.get(file_date)
+
+        if existing_folder is not None:
+            adopted.setdefault(existing_folder, []).extend(date_to_files[file_date])
+
+    results.extend(adopted.items())
+
+    # ---- Pass 2: discover new clusters among days nobody has claimed ----
+    if threshold <= 0:
+        return results
+
+    unclaimed = {
+        file_date: files
+        for file_date, files in date_to_files.items()
+        if file_date not in claimed_days
+    }
+
+    dense_days = sorted(d for d, files in unclaimed.items() if len(files) >= threshold)
 
     if not dense_days:
-        return []
+        return results
 
     # Merge adjacent dense days (no gap allowed) into spans
     current_span = [dense_days[0]]
@@ -489,21 +614,23 @@ def _detect_photo_clusters(year_dir, threshold, exclude_paths=None):
 
     all_spans.append(current_span)
 
-    # Build labeled results — no secondary filter needed; every span was
-    # assembled from days that individually met the per-day threshold.
-    results = []
-
+    # Build results — no secondary filter needed; every span was assembled from
+    # days that individually met the per-day threshold.
     for span in all_spans:
         span_files = []
         for d in span:
-            span_files.extend(date_to_files[d])
+            span_files.extend(unclaimed[d])
 
         if len(span) == 1:
             label = span[0].strftime('%m-%d')
         else:
             label = f"{span[0].strftime('%m-%d')}–{span[-1].strftime('%m-%d')}"
 
-        results.append((f"{label} Event", span_files))
+        # The new folder goes in the month folder holding the earliest day's
+        # first file. Unchanged from the original behavior — deliberately not
+        # derived from the span's start month, which would silently relocate
+        # misfiled photos and is out of scope for this fix.
+        results.append((span_files[0].parent / f"{label} Event", span_files))
 
     return results
 
@@ -625,16 +752,17 @@ def process_year(year_dir, dry_run=True, verbose=False, event_threshold=EVENT_CL
     if clusters:
         print(f"    --- potential events (>= {event_threshold} photos/day) ---")
 
-    for event_name, cluster_files in clusters:
-        # Cluster files are in date order (dense_days is sorted); the first
-        # file's parent is the earliest month folder — event folder goes there.
-        folder_name = event_name
-        dest_dir = cluster_files[0].parent / folder_name
+    for dest_dir, cluster_files in clusters:
+        # _detect_photo_clusters returns the full destination path. A folder that
+        # already exists is an adoption (loose files being collected into the
+        # folder that already owns their day); one that does not is a new cluster.
+        is_adoption = dest_dir.is_dir()
 
         summary['events_found'] += 1
         summary['total_candidates'] += len(cluster_files)
 
-        print(f"    {folder_name}: {len(cluster_files)} photo(s)")
+        marker = ' [into existing]' if is_adoption else ''
+        print(f"    {dest_dir.name}{marker}: {len(cluster_files)} photo(s)")
 
         if verbose:
             for file_path in sorted(cluster_files, key=lambda f: _get_file_date(f) or date.min):

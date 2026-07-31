@@ -301,7 +301,7 @@ def action_duplicate_check():
     print("removing any files, as some may be intentional copies or edits.")
 
     # Save cache for future runs
-    detector.save_duration_cache()
+    detector.save_caches()
 
 
 def action_motion_photos():

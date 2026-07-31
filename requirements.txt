@@ -1,0 +1,37 @@
+# Python dependencies for process-media
+#
+# Install into a project-local virtual environment so that a Homebrew Python
+# upgrade cannot silently orphan these packages:
+#
+#     python3 -m venv .venv
+#     .venv/bin/python -m pip install -r requirements.txt
+#
+# Then run every script through .venv/bin/python (see README "Requirements").
+#
+# Versions are pinned because an unpinned upgrade already broke this project
+# once: a Homebrew bump to Python 3.14 orphaned the previously-installed
+# site-packages, and photo_triage.py exits immediately when OpenCV is missing,
+# which silently disabled the entire photo review workflow.
+#
+# External (non-pip) tools are still required and are NOT managed here:
+#     brew install exiftool ffmpeg
+#
+# Verified working on macOS arm64 / CPython 3.14.6 on 2026-07-30:
+# all 75 tests in test_core.py pass, and blur / pHash / SSIM / HEIC decoding
+# were smoke-tested against live archive files under OpenCV 5.0.
+
+# Blur detection (Laplacian variance), perceptual hashing (DCT), SSIM comparison.
+# Note: this is the 5.x line. Every cv2 symbol used by this project was verified
+# present in 5.0 — the 4.x -> 5.x bump required no code changes.
+opencv-python==5.0.0.93
+
+# Required by opencv-python; also used directly for image array math.
+numpy==2.5.1
+
+# Image loading for dimension reads and HEIC support.
+pillow==12.3.0
+
+# Registers a HEIF/HEIC opener with Pillow so iPhone photos can be analyzed.
+# Optional at runtime (guarded by HEIC_AVAILABLE) but effectively required —
+# a large share of the archive is HEIC.
+pillow_heif==1.5.0

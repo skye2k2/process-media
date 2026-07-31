@@ -222,11 +222,30 @@ class ImageAnalysisCache:
                 self.cache = {}
 
     def save(self):
-        """Save cache to disk if modified."""
-        if self.dirty:
+        """
+        Save cache to disk if modified.
+
+        Tolerates an unwritable destination rather than raising. Caches are
+        flushed in bulk by save_all_caches() at the very end of a long run, and
+        the directory a cache belongs to may legitimately be gone by then — it
+        was emptied and pruned during this run, or it lives on a NAS share that
+        has since unmounted. Raising here would abort the flush partway through
+        and discard every hash computed by the run that just finished.
+
+        A cache whose directory no longer exists has nothing left to describe, so
+        dropping it is correct; the warning exists so a vanished mount does not
+        pass unnoticed.
+        """
+        if not self.dirty:
+            return
+
+        try:
             with open(self.cache_path, 'w') as f:
                 json.dump(self.cache, f, indent=2)
             self.dirty = False
+
+        except OSError as error:
+            print(f"  WARNING: Could not save cache {self.cache_path}: {error}")
 
     def _is_valid(self, file_path, entry):
         """Check if cache entry is still valid for the file."""
@@ -353,6 +372,71 @@ class ImageAnalysisCache:
                 'size': stat.st_size,
                 'md5': md5_hash,
                 'phash': phash
+            }
+
+        self.dirty = True
+
+    def get_md5(self, file_path):
+        """
+        Get the cached MD5 alone, without requiring a perceptual hash.
+
+        get_hashes() deliberately returns None unless BOTH md5 and phash are
+        present, because its callers need the pair. Content-hash deduplication
+        during import needs only the md5, and most archived files were hashed by
+        a path that never computed a phash — so going through get_hashes() would
+        force a pointless re-read of the file.
+
+        Args:
+            file_path: Path to the file
+
+        Returns:
+            str: MD5 hex digest, or None if not cached or the entry is stale
+        """
+        file_path = Path(file_path).resolve()
+        key = str(file_path)
+
+        if key not in self.cache:
+            return None
+
+        entry = self.cache[key]
+
+        if not self._is_valid(file_path, entry):
+            return None
+
+        return entry.get('md5')
+
+    def set_md5(self, file_path, md5_hash):
+        """
+        Store an MD5 without disturbing any other cached field.
+
+        Mirrors set_blur()/set_dimensions(): a partial write must never clobber a
+        phash or blur score computed by the triage pipeline, since the caches are
+        shared between import-time dedupe and review-time analysis.
+
+        Silently does nothing if the file has vanished — a stat() is required to
+        record the mtime/size that later invalidate the entry.
+
+        Args:
+            file_path: Path to the file
+            md5_hash:  MD5 hex digest of the file contents
+        """
+        file_path = Path(file_path).resolve()
+        key = str(file_path)
+
+        try:
+            stat = file_path.stat()
+        except OSError:
+            return
+
+        if key in self.cache:
+            self.cache[key]['mtime'] = stat.st_mtime
+            self.cache[key]['size'] = stat.st_size
+            self.cache[key]['md5'] = md5_hash
+        else:
+            self.cache[key] = {
+                'mtime': stat.st_mtime,
+                'size': stat.st_size,
+                'md5': md5_hash
             }
 
         self.dirty = True
