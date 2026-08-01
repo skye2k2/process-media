@@ -26,6 +26,9 @@ Output categories:
                     workflow_archive.py will append a camera model suffix
                     (e.g., _S3100, _S3500) to the filename on ingestion so
                     both files survive. Review to confirm they are distinct.
+  TRANSCODED_MATCH  A video already present as a converted copy. A transcode shares
+                    no bytes with its source, so MD5 cannot see it; the original
+                    stem inside the archived filename is what identifies it.
   NEW_CONTENT       No match found by any strategy. Candidate for ingestion.
   NO_EXIF           EXIF extraction failed or returned no date. Cannot compare
                     by date. Flagged for manual review.
@@ -65,7 +68,18 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from media_utils import MONTH_NAMES, PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
+from analyze_photo_quality import (
+    compute_md5 as shared_compute_md5,
+    get_analysis_cache,
+    save_all_caches,
+)
+
+from media_utils import (
+    AVCHD_EXTENSIONS,
+    MONTH_NAMES,
+    PHOTO_EXTENSIONS,
+    VIDEO_EXTENSIONS,
+)
 
 SCRIPT_DIR = Path(__file__).parent
 DEFAULT_ARCHIVE_DIR = SCRIPT_DIR / "Organized_Photos"
@@ -85,6 +99,7 @@ CAT_DATE_SIZE_MATCH = "DATE_SIZE_MATCH"
 CAT_DEST_COLLISION = "DEST_COLLISION"
 CAT_NEW_CONTENT = "NEW_CONTENT"
 CAT_NO_EXIF = "NO_EXIF"
+CAT_TRANSCODED_MATCH = "TRANSCODED_MATCH"
 CAT_ERROR = "ERROR"
 
 
@@ -168,29 +183,54 @@ def compute_md5(file_path, chunk_size=65536):
     """
     Compute MD5 hash of a file for byte-level duplicate detection.
 
+    Kept as a thin wrapper over the shared implementation so the source-side hashing
+    below stays uncached: source trees are frequently mounted shares or memory cards
+    that must not be written to.
+
     Args:
         file_path: Path to the file
-        chunk_size: Read block size in bytes (64KB default)
+        chunk_size: Unused; retained so existing callers keep working
 
     Returns:
         str: Hex MD5 digest, or None if the file could not be read
     """
-    h = hashlib.md5()
-
     try:
-        with open(file_path, "rb") as fh:
-            while True:
-                block = fh.read(chunk_size)
-
-                if not block:
-                    break
-
-                h.update(block)
-
-        return h.hexdigest()
-
+        return shared_compute_md5(file_path)
     except OSError:
         return None
+
+
+def cached_archive_md5(file_path):
+    """
+    Return an ARCHIVED file's MD5, reusing the per-directory analysis cache.
+
+    Previously this tool hashed all 35,000 archived files from cold on every run --
+    155 seconds of pure re-reading -- using its own private MD5 implementation while
+    ignoring the tens of thousands of digests already sitting in the
+    `.analysis_cache.json` files that photo triage and the duplicate detector both
+    populate. Reusing them makes a repeat run nearly free.
+
+    Only for files inside the organized archive. Source files must go through
+    compute_md5(), which writes nothing.
+
+    Args:
+        file_path: Path to an archived file
+
+    Returns:
+        str: Hex MD5 digest, or None if unreadable
+    """
+    cache = get_analysis_cache(file_path.parent)
+    cached = cache.get_md5(file_path)
+
+    if cached:
+        return cached
+
+    digest = compute_md5(file_path)
+
+    if digest:
+        cache.set_md5(file_path, digest)
+
+    return digest
 
 
 # ============================================================================
@@ -221,7 +261,7 @@ def build_archive_md5_index(archive_dir):
     start_time = time.time()
 
     for i, file_path in enumerate(all_files):
-        md5 = compute_md5(file_path)
+        md5 = cached_archive_md5(file_path)
 
         if md5:
             index[md5].append(file_path)
@@ -276,6 +316,78 @@ def build_archive_date_index(archive_dir):
     print(f"  Date index: {len(date_index)} unique timestamps")
 
     return date_index
+
+
+def build_archive_stem_index(archive_dirs):
+    """
+    Map original-filename stems to archived paths, for transcode detection.
+
+    A transcoded video cannot be found by MD5: `DSCN3019.AVI` becomes
+    `20131004_161529_DSCN3019_S3100.h265.mp4`, so not a byte survives. But the
+    convention preserves the ORIGINAL stem inside the new name, which makes it
+    recoverable by substring.
+
+    Without this the reconciler reported every video as NEW_CONTENT. On the Nikon
+    archive that was 11 of 11 reported-new files -- a 100% false-positive rate on the
+    tool's only actionable output -- and following its advice would have re-imported
+    11 original AVIs beside the H.265 transcodes that already existed.
+
+    Args:
+        archive_dirs: Iterable of archive roots to scan
+
+    Returns:
+        dict: {stem_lower: [Path, ...]}
+    """
+    index = defaultdict(list)
+
+    for archive_dir in archive_dirs:
+        if not archive_dir.is_dir():
+            continue
+
+        for path in archive_dir.rglob("*"):
+            if not path.is_file() or path.name.startswith('.'):
+                continue
+
+            index[path.stem.lower()].append(path)
+
+    return index
+
+
+def find_transcoded_match(source_path, stem_index):
+    """
+    Find an archived file whose name contains the source's stem.
+
+    Deliberately narrow: it requires the source stem to appear as a distinct token in
+    the archived stem, so `DSCN3019` matches `20131004_161529_DSCN3019_S3100` but a
+    short or generic stem cannot match half the archive by accident. Stems shorter
+    than four characters are refused outright for the same reason -- `001` would match
+    everything.
+
+    Args:
+        source_path: Path to the NAS source file
+        stem_index:  Index from build_archive_stem_index()
+
+    Returns:
+        Path of the archived counterpart, or None
+    """
+    stem = source_path.stem.lower()
+
+    if len(stem) < 4:
+        return None
+
+    # Exact stem match first -- cheapest and most certain
+    for candidate in stem_index.get(stem, []):
+        return candidate
+
+    # Then look for the stem as a distinct token inside archived stems. Splitting on
+    # dots as well as underscores matters because a compound extension leaves part of
+    # itself in the stem: Path("...DSCN3019.h265.mp4").stem is "...DSCN3019.h265", so
+    # a stem sitting last would otherwise never match.
+    for archived_stem, paths in stem_index.items():
+        if stem in re.split(r'[._]', archived_stem):
+            return paths[0]
+
+    return None
 
 
 def build_archive_dest_index(archive_dir):
@@ -372,7 +484,29 @@ def compute_destination_filename(source_path, model_suffix):
     return f"{source_path.stem}{model_suffix}{source_path.suffix}"
 
 
-def compute_destination_path(source_path, exif_date, model_suffix, archive_dir):
+def is_video_source(source_path):
+    """
+    Report whether a source file is a video rather than a photo.
+
+    Matters twice over: videos land in Organized_Videos rather than Organized_Photos,
+    and a video may already be archived as a transcode that shares no bytes with the
+    original.
+
+    Args:
+        source_path: Path to check
+
+    Returns:
+        bool
+    """
+    suffix = source_path.suffix.lower()
+    video_suffixes = {extension.lower() for extension in VIDEO_EXTENSIONS}
+    avchd_suffixes = {extension.lower() for extension in AVCHD_EXTENSIONS}
+
+    return suffix in video_suffixes or suffix in avchd_suffixes
+
+
+def compute_destination_path(source_path, exif_date, model_suffix, archive_dir,
+                            video_archive_dir=None):
     """
     Compute the full path where organize_archive.py would place this file.
 
@@ -381,6 +515,7 @@ def compute_destination_path(source_path, exif_date, model_suffix, archive_dir):
         exif_date:    datetime from EXIF (required; returns None if None)
         model_suffix: Camera model suffix string (e.g. "_S3500" or "")
         archive_dir:  Root Organized_Photos/ directory
+        video_archive_dir: Root Organized_Videos/ directory; videos are routed here
 
     Returns:
         Path: predicted destination, or None if date is unavailable
@@ -388,8 +523,16 @@ def compute_destination_path(source_path, exif_date, model_suffix, archive_dir):
     if not exif_date:
         return None
 
+    # Videos go to Organized_Videos, not Organized_Photos. Reporting a video's
+    # destination under the photo root was the second half of BUG-7: even for a
+    # genuinely new clip the advice named a directory the importer would never use.
+    root = archive_dir
+
+    if is_video_source(source_path) and video_archive_dir is not None:
+        root = video_archive_dir
+
     month_folder = MONTH_NAMES[exif_date.month - 1]
-    dest_dir = archive_dir / str(exif_date.year) / month_folder
+    dest_dir = root / str(exif_date.year) / month_folder
     filename = compute_destination_filename(source_path, model_suffix)
 
     return dest_dir / filename
@@ -408,6 +551,8 @@ def classify_file(
     archive_date_index,
     archive_dest_index,
     archive_dir,
+    archive_stem_index=None,
+    video_archive_dir=None,
 ):
     """
     Classify a single NAS file against the existing archive.
@@ -419,8 +564,10 @@ def classify_file(
        YYYY/MM MonthName/ directory with the same filename (after model
        suffix is applied) as an existing file, but byte content differs.
        This is the "different camera, same DSCN counter" case.
-    4. No EXIF date — cannot compute destination; needs manual review
-    5. No match — genuinely new content; ready to ingest
+    4. Transcoded match — a video whose original stem appears inside an archived
+       filename. A transcode shares no bytes with its source, so MD5 cannot see it.
+    5. No EXIF date — cannot compute destination; needs manual review
+    6. No match — genuinely new content; ready to ingest
 
     Args:
         source_path:         Path to the NAS file being classified
@@ -431,6 +578,8 @@ def classify_file(
         archive_date_index:  {"YYYYMMDD_HHMMSS": [(Path, size), ...]}
         archive_dest_index:  {(year, month_folder, filename): Path}
         archive_dir:         Root Organized_Photos/ directory
+        archive_stem_index:  {stem_lower: [Path, ...]} for transcode detection
+        video_archive_dir:   Root Organized_Videos/ directory, for video destinations
 
     Returns:
         dict with keys: category, source, match, dest, note
@@ -456,9 +605,26 @@ def classify_file(
             "note": "Byte-identical copy already in archive",
         }
 
+    # 2. Transcoded match. A converted video shares no bytes with its original, so
+    # MD5 is blind to it, but the camcorder convention keeps the original stem inside
+    # the new filename (DSCN3019.AVI -> 20131004_161529_DSCN3019_S3100.h265.mp4).
+    # Checked only for videos, since photo stems are far less distinctive.
+    if archive_stem_index is not None and is_video_source(source_path):
+        transcoded = find_transcoded_match(source_path, archive_stem_index)
+
+        if transcoded is not None:
+            return {
+                "category": CAT_TRANSCODED_MATCH,
+                "source": str(source_path),
+                "match": str(transcoded),
+                "dest": None,
+                "note": "Already converted — archived as a transcode, so no byte match exists",
+            }
+
     # Compute predicted destination (with model suffix baked in)
     dest_path = compute_destination_path(
-        source_path, source_exif_date, source_model_suffix, archive_dir
+        source_path, source_exif_date, source_model_suffix, archive_dir,
+        video_archive_dir=video_archive_dir
     )
 
     # 2. Date + size match
@@ -579,6 +745,7 @@ def print_summary(results, archive_dir, elapsed):
     labels = {
         CAT_EXACT_MATCH:    "Exact duplicates   (byte-identical, safe to skip)",
         CAT_DATE_SIZE_MATCH:"Date+size match    (high-confidence duplicate)",
+        CAT_TRANSCODED_MATCH:"Transcoded match   (already converted; no byte match possible)",
         CAT_DEST_COLLISION: "Dest clash         (same folder+name after suffix, diff content)",
         CAT_NEW_CONTENT:    "New content        (not yet in archive, ready to ingest)",
         CAT_NO_EXIF:        "No EXIF date       (manual review needed)",
@@ -724,6 +891,9 @@ def save_run_cache(cache_path, results, source_dir, archive_dir):
 
     print(f"  Results cached to: {cache_path.name}")
 
+    # Persist archive MD5s learned this run so the next one reuses them
+    save_all_caches()
+
 
 # ============================================================================
 # MAIN
@@ -801,6 +971,9 @@ Examples:
         sys.exit(1)
 
     archive_dir = Path(args.archive_dir) if args.archive_dir else SCRIPT_DIR / "Organized_Photos"
+    # Videos live in a separate root. Ignoring it was BUG-7: every video was
+    # reported as new content, and its predicted destination named the photo root.
+    video_archive_dir = SCRIPT_DIR / "Organized_Videos"
 
     if not archive_dir.exists():
         print(f"ERROR: Archive directory does not exist: {archive_dir}")
@@ -847,6 +1020,8 @@ Examples:
 
     archive_date_index = build_archive_date_index(archive_dir)
     archive_dest_index = build_archive_dest_index(archive_dir)
+    archive_stem_index = build_archive_stem_index([archive_dir, video_archive_dir])
+    print(f"  Stem index: {len(archive_stem_index)} distinct filename stems")
     print(f"  Destination-path index: {len(archive_dest_index)} files indexed\n")
 
     # -- Extract EXIF from source files (date + camera model) ----------------
@@ -949,6 +1124,8 @@ Examples:
             archive_date_index=archive_date_index,
             archive_dest_index=archive_dest_index,
             archive_dir=archive_dir,
+            archive_stem_index=archive_stem_index,
+            video_archive_dir=video_archive_dir,
         )
         results.append(classification)
 

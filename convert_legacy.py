@@ -40,7 +40,13 @@ from media_utils import AVCHD_EXTENSIONS, MONTH_FOLDER_NAMES
 SCRIPT_DIR = Path(__file__).parent
 VIDEO_OUTPUT_DIR = SCRIPT_DIR / "Organized_Videos"
 
-# FFmpeg encoding settings (match camcorder_convert.py)
+# FFmpeg encoding settings.
+#
+# NOTE: these no longer match camcorder_convert.py, despite what this comment used to
+# claim. That module raised its CRF from 20 to 26 after finding that 20 produced
+# bloated files for no visible benefit; this one was never updated. The same reasoning
+# probably applies here, but changing it would alter the quality and size of every
+# future legacy conversion, so it is left alone deliberately rather than by oversight.
 FFMPEG_CRF = 20
 FFMPEG_PRESET = "slow"
 FFMPEG_AUDIO_BITRATE = "192k"

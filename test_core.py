@@ -57,6 +57,7 @@ import check_nas_archive
 import create_event_folders
 import duplicate_detector
 import organize_archive
+import reconcile_nikon_archive
 import removal_history
 from analyze_photo_quality import ImageAnalysisCache, get_analysis_cache
 
@@ -2510,6 +2511,168 @@ class TestDurationPlausibility(unittest.TestCase):
         # Just below it
         plausible, _ = self._check(size * 8 / (threshold * 0.9), size)
         self.assertFalse(plausible)
+
+
+# ============================================================================
+# SECTION 16: Reconciler Video Awareness (BUG-7)
+# ============================================================================
+
+class TestReconcilerVideoAwareness(unittest.TestCase):
+    """
+    Cover the BUG-7 fix in reconcile_nikon_archive.py.
+
+    The reconciler indexed only Organized_Photos, which broke it twice over. Every
+    video was reported as NEW_CONTENT — on the Nikon archive that was 11 of 11
+    reported-new files, a 100% false-positive rate on the tool's only actionable
+    output — and the destination it predicted for a video named the photo root, which
+    the importer would never use.
+
+    Both stem from the same cause: a transcode shares no bytes with its source, so
+    MD5 cannot see it, while the naming convention preserves the original stem
+    (DSCN3019.AVI becomes 20131004_161529_DSCN3019_S3100.h265.mp4).
+    """
+
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.photos = self.temp_dir / "Organized_Photos"
+        self.videos = self.temp_dir / "Organized_Videos"
+        (self.photos / "2013" / "10 October").mkdir(parents=True)
+        (self.videos / "2013" / "10 October").mkdir(parents=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _stem_index(self):
+        return reconcile_nikon_archive.build_archive_stem_index([self.photos, self.videos])
+
+    # -- Video detection -----------------------------------------------------
+
+    def test_avchd_is_a_video(self):
+        self.assertTrue(reconcile_nikon_archive.is_video_source(Path("00001.MTS")))
+        self.assertTrue(reconcile_nikon_archive.is_video_source(Path("00001.m2ts")))
+
+    def test_standard_video_formats(self):
+        for name in ("clip.mp4", "clip.MOV", "clip.avi", "clip.m4v"):
+            with self.subTest(name=name):
+                self.assertTrue(reconcile_nikon_archive.is_video_source(Path(name)))
+
+    def test_photos_are_not_videos(self):
+        for name in ("DSCN0001.JPG", "IMG_1234.heic", "scan.png"):
+            with self.subTest(name=name):
+                self.assertFalse(reconcile_nikon_archive.is_video_source(Path(name)))
+
+    # -- Transcode detection -------------------------------------------------
+
+    def test_transcode_found_by_embedded_stem(self):
+        """The exact real case: DSCN3019.AVI archived as an H.265 transcode."""
+        archived = self.videos / "2013" / "10 October" / "20131004_161529_DSCN3019_S3100.h265.mp4"
+        archived.write_bytes(b"transcoded content")
+
+        match = reconcile_nikon_archive.find_transcoded_match(
+            Path("/nas/2013/DSCN3019.AVI"), self._stem_index()
+        )
+
+        self.assertEqual(match, archived)
+
+    def test_unrelated_stem_finds_nothing(self):
+        (self.videos / "2013" / "10 October" / "20131004_161529_DSCN3019_S3100.h265.mp4").write_bytes(b"x")
+
+        match = reconcile_nikon_archive.find_transcoded_match(
+            Path("/nas/2013/DSCN9999.AVI"), self._stem_index()
+        )
+
+        self.assertIsNone(match)
+
+    def test_short_stems_are_refused(self):
+        """
+        A stem like "001" would match half the archive by coincidence, so anything
+        under four characters is rejected outright rather than risking a false skip.
+        """
+        (self.videos / "2013" / "10 October" / "20131004_161529_001_CAM.h265.mp4").write_bytes(b"x")
+
+        match = reconcile_nikon_archive.find_transcoded_match(
+            Path("/nas/001.MTS"), self._stem_index()
+        )
+
+        self.assertIsNone(match)
+
+    def test_stem_as_the_last_token_still_matches(self):
+        """
+        With no model suffix the original stem lands last and carries ".h265" from the
+        compound extension. Splitting on dots as well as underscores keeps it findable.
+        """
+        archived = self.videos / "2013" / "10 October" / "20131004_161529_DSCN3019.h265.mp4"
+        archived.write_bytes(b"x")
+
+        match = reconcile_nikon_archive.find_transcoded_match(
+            Path("/nas/2013/DSCN3019.AVI"), self._stem_index()
+        )
+
+        self.assertEqual(match, archived)
+
+    def test_partial_token_does_not_match(self):
+        """
+        DSCN301 must not match DSCN3019 — matching is on whole underscore-delimited
+        tokens, not substrings, or a shorter stem would swallow a longer one.
+        """
+        (self.videos / "2013" / "10 October" / "20131004_161529_DSCN3019_S3100.h265.mp4").write_bytes(b"x")
+
+        match = reconcile_nikon_archive.find_transcoded_match(
+            Path("/nas/DSCN301.AVI"), self._stem_index()
+        )
+
+        self.assertIsNone(match)
+
+    def test_stem_index_spans_both_roots(self):
+        """Photos and videos must both be indexed, which is the root of BUG-7."""
+        (self.photos / "2013" / "10 October" / "DSCN3089_S3500.JPG").write_bytes(b"p")
+        (self.videos / "2013" / "10 October" / "20131004_161529_DSCN3019_S3100.h265.mp4").write_bytes(b"v")
+
+        index = self._stem_index()
+
+        self.assertIn("dscn3089_s3500", index)
+        self.assertIn("20131004_161529_dscn3019_s3100.h265", index)
+        # Note the trailing ".h265": a compound extension leaves part of itself
+        # in the stem, which is why matching tokenizes on dots as well.
+
+    # -- Destination routing -------------------------------------------------
+
+    def test_video_destination_uses_the_video_root(self):
+        destination = reconcile_nikon_archive.compute_destination_path(
+            Path("/nas/2013/DSCN3019.AVI"),
+            datetime(2013, 10, 4, 16, 15, 29),
+            "_S3100",
+            self.photos,
+            video_archive_dir=self.videos,
+        )
+
+        self.assertIsNotNone(destination)
+        self.assertTrue(
+            str(destination).startswith(str(self.videos)),
+            f"video must land under Organized_Videos, got {destination}"
+        )
+
+    def test_photo_destination_still_uses_the_photo_root(self):
+        destination = reconcile_nikon_archive.compute_destination_path(
+            Path("/nas/2013/DSCN3089.JPG"),
+            datetime(2013, 12, 25, 10, 0, 0),
+            "_S3500",
+            self.photos,
+            video_archive_dir=self.videos,
+        )
+
+        self.assertTrue(str(destination).startswith(str(self.photos)))
+
+    def test_video_root_omitted_falls_back_safely(self):
+        """Without a video root the old behavior stands rather than crashing."""
+        destination = reconcile_nikon_archive.compute_destination_path(
+            Path("/nas/2013/DSCN3019.AVI"),
+            datetime(2013, 10, 4, 16, 15, 29),
+            "",
+            self.photos,
+        )
+
+        self.assertTrue(str(destination).startswith(str(self.photos)))
 
 
 # ============================================================================
