@@ -2,6 +2,128 @@
 
 ---
 
+## v16 — 2026-07-31 — "Integrity gates and archive-safe defaults"
+
+Preparation for ingesting three remaining source trees. The theme is that defaults
+which are correct for a local staging directory become destructive when pointed at
+an archive, and that nothing was verifying files are actually intact.
+
+<details>
+
+### Archive-safe defaults
+
+Two workflows had defaults tuned for `TO_PROCESS/`, where the source is a disposable
+copy:
+
+- **`camcorder_convert.py` deletes each original after converting it**, and
+  `keep_originals` defaults to False. Pointed at the NAS home-movies share that would
+  have deleted 675 original MTS files, 94 GB, currently the only copy. `is_staging_path()`
+  now refuses deletion when the source lies outside a `TO_PROCESS` directory, so the
+  flag is no longer the only safeguard.
+- **`organize_archive.py` moves files**, so a live run against a share removes them.
+  Mitigated procedurally for the first home-movies batch by staging a copy; the 21
+  imported files left all 21 NAS originals in place.
+
+### `--avchd-only`, and the duplicate transcode it prevents
+
+`scan_video_files()` collects every video extension. Pointed at the home-movies share
+it queued **1,368 files and 113 GB** rather than the expected 675 and 94 GB. The extra
+679 were MP4s, **673 of which were already in `Organized_Videos`** — imported by
+`organize_archive.py`, which does not write to the conversion index, so the camcorder
+workflow could not tell they were present and would have written H.265 duplicates
+alongside them.
+
+Scoping to AVCHD gives 669 files and 86.68 GB, with 53 correctly skipped as already
+indexed — matching an independently measured overlap figure exactly.
+
+### Damage detection, and refusing to import it
+
+`check_media_health.py` gained real coverage:
+
+- **HEIC**: the first run reported 103 archived files as unreadable, every one a HEIC,
+  because PIL was never given the HEIF opener. All were fine. Now registered, and HEIC
+  reports `not_checked` rather than "damaged" when pillow-heif is genuinely absent.
+- **AVCHD**: 741 of 1,465 files on the home-movies share were going unvalidated — 750
+  MTS clips nobody had checked. `.mts` is deliberately outside `VIDEO_EXTENSIONS`
+  because the camcorder workflow owns its routing, but integrity still needs testing.
+  Now reuses the existing `AVCHD_EXTENSIONS` constant.
+- **Documents**: added ZIP-family CRC verification (`.docx`, `.xlsx`, `.pptx`,
+  OpenDocument, `.epub`) and a PDF `%%EOF` check. The ZIP check is the strongest
+  verification in the project — ZIP stores a CRC32 per member, so damage is proven
+  rather than inferred. It also works on exactly the corruption a ZFS scrub cannot
+  see, since this data crossed two pre-ZFS NAS generations.
+
+Both import paths now refuse damaged sources: `organize_archive.py` quarantines them
+before the move, and `camcorder_convert.py` pre-screens before spending an encode.
+`duration_is_plausible()` additionally rejects corrupt timing metadata — one real file
+reports 66,315 seconds (18.4 hours) for 142 MB while only 610 frames decode, which
+would have produced a run-away encode.
+
+### Mid-run share loss no longer reads as "everything is new"
+
+Undocking dropped the SMB share partway through a dry-run. Every remaining file became
+unreadable, `find_duplicate()` reported "source does not exist", and **4,114 files
+flipped from skip to import** while the run reported success. An unreadable source is
+now an error, and the loose-file loop aborts if the input root vanishes.
+
+### Review reports are findable again
+
+Reports moved from `_TO_REVIEW_/.TMP_*.html` to the archive root as
+`_review_issues.html` and `_browse_all.html`. A `.TMP_` prefix marks a disposable
+artifact, which is wrong for a document worked from for hours, and the leading dot hid
+it from Finder. The archive root is also where they historically lived, so regenerating
+now replaces the stale copy — the March pair had sat there for months with links into
+paths the event-folder reorganization had already invalidated.
+
+### Measured, not estimated
+
+- **PhotoSync**: 649 of 8,609 would import, down from 4,466 before the v15 gates.
+  3,638 skipped by the recompression gate, 229 by removal history.
+- **Health**: local archive clean (35,210 photos, 0 damaged). PhotoSync 4 damaged of
+  8,631; home-movies 19 of 1,465, **all MTS, all in 2009, 2010 or 2014** — clustering
+  that looks like inherited corruption rather than random rot. Two are structurally
+  scrambled rather than truncated, which an interrupted write cannot produce.
+- **home-movies overlap**: 94% of non-AVCHD already archived, but only 7% of AVCHD.
+  Confirmed by two independent methods agreeing exactly (53 archived, 675 new, 11
+  undated). Camcorder filenames recycle per card — NAS `00003.MTS` is 185 MB where the
+  index records 49 MB for the same name.
+- **Throughput**: derived from the index's own `converted_at` timestamps rather than
+  guessed.
+
+### Rejected approaches, recorded so they are not retried
+
+- **Perceptual hashing to verify a duplicate match.** Across 500 real skip decisions,
+  true duplicates scored a pHash distance of 0 every time while mispaired burst frames
+  scored 0 to 16 — one at exactly 0 with an SSIM of 0.7597. Burst frames are the same
+  scene, which is what pHash is built to call identical.
+- **Duration matching for video overlap.** Reported 94.3% already archived and was
+  completely wrong: with 2,169 archived videos at ±1.5 s, a 2009 camcorder clip
+  "matched" a 2018 phone video and two clips matched the same file.
+- **mtime as a date source in general** (88% agreement) — though for the 11 undated
+  AVCHD it is trustworthy, since every derived date matches its folder year.
+
+### Corrections to earlier claims in this project's own notes
+
+- The "residual BUG-8 false skips" were **damaged files**, not detection failures.
+  Three of five appear verbatim in the truncated list. True residual rate ~0.03%.
+- The undated-AVCHD repair step was **unnecessary**: `get_creation_date()` already
+  falls back to mtime, and the probe that found the "gap" skipped that wrapper.
+- Prevalence figures were wrong twice — once by counting crops as recompressions, once
+  because a sampling loop exited at its limit, making "40 of 1,180" a stop-at-N
+  artifact rather than a rate.
+
+### Tests — 126 → 184
+
+New sections cover the recompression keeper gate, removal history normalization
+(weighted toward the over-stripping failure that would have blocked every import),
+the source-liveness guard, damaged-source quarantine, media health checks including a
+HEIF-registration regression guard, and the staging-path and duration-plausibility
+decisions.
+
+</details>
+
+---
+
 ## v15 — 2026-07-31 — "Keeper gate, removal history, health checks"
 
 Three additions, all aimed at not losing or duplicating data during the remaining

@@ -30,6 +30,7 @@ from pathlib import Path
 
 from build_file_index import build_file_index
 from duplicate_detector import DuplicateDetector, MatchConfidence
+from check_media_health import check_file as check_media_file
 from removal_history import RemovalHistory
 from media_utils import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS, MONTH_NAMES
 
@@ -608,6 +609,7 @@ def process_file(
     model_suffix_map=None,
     person_suffix='',
     removal_history=None,
+    skip_damaged=True,
 ):
     """
     Process a single media file using smart duplicate detection.
@@ -635,6 +637,16 @@ def process_file(
             action_taken: Description of what happened
     """
     print(f"\n  Processing: {file_path.name}")
+
+    # A source file that has become unreadable is an ERROR, not a new file. When a
+    # network share drops mid-run every remaining file looks absent, find_duplicate()
+    # reports "source does not exist", and without this guard each one would fall
+    # through and be reported as new -- silently importing thousands of duplicates.
+    # Observed for real: an undock dropped the share partway through a dry-run and
+    # 4,114 files flipped from skip to import.
+    if not file_path.exists():
+        print(f"    ERROR: source file is unreadable (share dropped?)")
+        return 'failed', 'source unreadable'
 
     # Get creation date (required for organizing into year/month folders)
     creation_date, date_source = get_creation_date(file_path, exif_cache=exif_cache)
@@ -706,6 +718,17 @@ def process_file(
                     print(f"    ERROR: Could not replace: {e}")
                     return 'failed', str(e)
 
+    # About to import. Prove the file is intact first -- this is the last moment a
+    # damaged source can be stopped from entering the archive, where it could later
+    # be chosen over a healthy copy during review. Only files that would actually be
+    # imported pay for the decode; skipped duplicates cost nothing.
+    if skip_damaged:
+        _, health, health_detail = check_media_file(file_path)
+
+        if health not in ('ok', 'not_checked'):
+            print(f"    QUARANTINED: source is not intact ({health}) -- {health_detail[:60]}")
+            return 'damaged', f'{health}: {health_detail[:80]}'
+
     # No duplicate found - move to organized location
     is_video = is_video_file(file_path)
     dest_folder = get_destination_folder(creation_date, is_video)
@@ -751,6 +774,16 @@ Examples:
         '--dry-run',
         action='store_true',
         help="Show what would be done without making changes"
+    )
+
+    parser.add_argument(
+        '--import-damaged',
+        action='store_true',
+        help=(
+            "Import files that fail an integrity check. Off by default: a truncated "
+            "or corrupt source must not enter the archive, where review could later "
+            "choose it over a healthy copy."
+        )
     )
 
     parser.add_argument(
@@ -935,11 +968,26 @@ Examples:
     failed_count = 0
     space_saved = 0  # Track bytes saved from replacing bloated files
 
+    damaged_count = 0
+    damaged_files = []
+
     if loose_files:
         print("\n" + "-" * 70)
         print("Processing loose files...")
 
         for file_path in sorted(loose_files, key=lambda p: p.name):
+            # Cheap liveness check: if the input root has vanished the share is gone,
+            # and continuing would produce a confidently wrong report for every
+            # remaining file. Stop rather than emit numbers nobody should trust.
+            if not input_dir.exists():
+                print(f"\n{'=' * 70}")
+                print("  ABORTED: the input directory is no longer reachable.")
+                print(f"  {input_dir}")
+                print("  A dropped network share makes every remaining file look new,")
+                print("  so the results so far are incomplete and the run has stopped.")
+                print('=' * 70)
+                break
+
             result, action = process_file(
                 file_path,
                 detector,
@@ -948,6 +996,7 @@ Examples:
                 model_suffix_map=model_suffix_map,
                 person_suffix=person_suffix,
                 removal_history=review_history,
+                skip_damaged=not args.import_damaged,
             )
 
             if result == 'moved':
@@ -956,6 +1005,11 @@ Examples:
                 replaced_count += 1
             elif result == 'skipped':
                 skipped_count += 1
+            elif result == 'damaged':
+                # Counted apart from failures: nothing went wrong with the run, a
+                # source file is simply not intact and was deliberately held back.
+                damaged_count += 1
+                damaged_files.append((file_path, action))
             else:
                 failed_count += 1
 
@@ -969,6 +1023,20 @@ Examples:
     print(f"  Loose files replaced:    {replaced_count} (bloated versions removed)")
     print(f"  Loose files skipped:     {skipped_count}")
     print(f"  Loose files failed:      {failed_count}")
+
+    if damaged_count:
+        print(f"\n  QUARANTINED (not intact):  {damaged_count}")
+        print("  These source files failed an integrity check and were held back.")
+        print("  Nothing in the archive was affected. Investigate the originals:")
+
+        for damaged_path, reason in damaged_files[:20]:
+            print(f"    {damaged_path.name[:52]}")
+            print(f"      {reason[:80]}")
+
+        if damaged_count > 20:
+            print(f"    ... and {damaged_count - 20} more")
+
+        print("  Override with --import-damaged if a partial file is worth keeping.")
 
     total_moved = project_files_moved + moved_count + replaced_count
 

@@ -369,6 +369,34 @@ def find_default_directory():
     return None
 
 
+def default_report_path(directory, filename):
+    """
+    Resolve where a generated HTML report should be written by default.
+
+    Reports go to the archive ROOT under a plain name, not into _TO_REVIEW_ under a
+    ".TMP_" prefix. Two reasons: a ".TMP_" name signals a disposable analysis
+    artifact, which is wrong for a document someone spends hours working from, and a
+    leading dot hides it from Finder and from shell globs. The historical location
+    was the archive root, so this also means regenerating replaces the previous
+    report rather than leaving a stale copy behind to be opened by mistake.
+
+    Args:
+        directory: The directory being analyzed
+        filename:  Bare report filename, e.g. "_review_issues.html"
+
+    Returns:
+        Path: where to write the report
+    """
+    review_base = find_review_base(directory)
+
+    # find_review_base returns the _TO_REVIEW_ folder itself; the archive root is
+    # its parent. If it returned something else, fall back to using it directly.
+    if review_base.name == '_TO_REVIEW_':
+        return review_base.parent / filename
+
+    return review_base / filename
+
+
 def find_review_base(directory):
     """
     Find the appropriate review base directory.
@@ -1430,7 +1458,7 @@ def generate_html_review(directory, output_path=None, include_duplicates=True):
 
     Args:
         directory: Directory to analyze
-        output_path: Where to save HTML (default: _TO_REVIEW_/.TMP_review_report.html)
+        output_path: Where to save HTML (default: <archive root>/_review_issues.html)
         include_duplicates: Whether to include duplicate detection
 
     Returns:
@@ -1440,7 +1468,7 @@ def generate_html_review(directory, output_path=None, include_duplicates=True):
     review_base = find_review_base(directory)
 
     if output_path is None:
-        output_path = review_base / ".TMP_review_issues.html"
+        output_path = default_report_path(directory, "_review_issues.html")
     else:
         output_path = Path(output_path)
 
@@ -1544,7 +1572,7 @@ def generate_html_browse(directory, output_path=None):
 
     Args:
         directory: Base directory to scan (e.g., Organized_Photos/)
-        output_path: Where to save HTML (default: _TO_REVIEW_/.TMP_browse_all.html)
+        output_path: Where to save HTML (default: <archive root>/_browse_all.html)
 
     Returns:
         Path: Path to generated HTML file
@@ -1556,7 +1584,7 @@ def generate_html_browse(directory, output_path=None):
     review_base = find_review_base(directory)
 
     if output_path is None:
-        output_path = review_base / ".TMP_browse_all.html"
+        output_path = default_report_path(directory, "_browse_all.html")
     else:
         output_path = Path(output_path)
 
@@ -4421,7 +4449,7 @@ Examples:
     review_parser.add_argument('directory', nargs='?', default=None,
                                help='Directory to analyze (default: Organized_Photos/)')
     review_parser.add_argument('--output', '-o',
-                               help='Output path for HTML (default: _TO_REVIEW_/.TMP_review_issues.html)')
+                               help='Output path for HTML (default: <archive root>/_review_issues.html)')
     review_parser.add_argument('--no-duplicates', action='store_true',
                                help='Skip duplicate detection')
     review_parser.add_argument('--open', action='store_true',
@@ -4432,7 +4460,7 @@ Examples:
     browse_parser.add_argument('directory', nargs='?', default=None,
                                help='Directory to browse (default: Organized_Photos/)')
     browse_parser.add_argument('--output', '-o',
-                               help='Output path for HTML (default: _TO_REVIEW_/.TMP_browse_all.html)')
+                               help='Output path for HTML (default: <archive root>/_browse_all.html)')
     browse_parser.add_argument('--open', action='store_true',
                                help='Open report in browser after generation')
 

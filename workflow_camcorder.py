@@ -156,6 +156,7 @@ def confirm_deletion():
 
 
 def run_conversion_workflow(input_dir, dry_run=False, keep_originals=False,
+                            avchd_only=False,
                              crf=FFMPEG_CRF, preset=FFMPEG_PRESET, force_software=False):
     """
     Execute the full video conversion workflow.
@@ -180,7 +181,7 @@ def run_conversion_workflow(input_dir, dry_run=False, keep_originals=False,
         return 1
 
     # Scan for video files
-    files = scan_video_files(input_dir)
+    files = scan_video_files(input_dir, avchd_only=avchd_only)
 
     if not files:
         print(f"\nNo video files found in: {input_dir}")
@@ -218,6 +219,8 @@ def run_conversion_workflow(input_dir, dry_run=False, keep_originals=False,
     skipped_indexed_count = 0
     skipped_duplicate_count = 0
     fail_count = 0
+    damaged_count = 0
+    damaged_files = []
     total_original_size = 0
     total_converted_size = 0
 
@@ -270,8 +273,25 @@ def run_conversion_workflow(input_dir, dry_run=False, keep_originals=False,
         elif result == 'skipped_duplicate':
             skipped_duplicate_count += 1
 
+        elif result == 'damaged':
+            # Not a failure of this run: the source was already broken and was
+            # deliberately held back rather than burning an encode on it.
+            damaged_count += 1
+            damaged_files.append(file_path)
+
         else:  # 'failed'
             fail_count += 1
+
+    if damaged_count:
+        print("\n" + "-" * 70)
+        print(f"  HELD BACK -- source not intact: {damaged_count}")
+        print("  These were not converted. Nothing in the archive was affected.")
+
+        for damaged_path in damaged_files[:20]:
+            print(f"    {damaged_path.name}")
+
+        if damaged_count > 20:
+            print(f"    ... and {damaged_count - 20} more")
 
     # Print summary
     elapsed = time.time() - start_time
@@ -318,6 +338,18 @@ Examples:
     )
 
     parser.add_argument(
+        '--avchd-only',
+        action='store_true',
+        help=(
+            "Only consider .MTS/.M2TS files. Use when pointing at an archive rather "
+            "than a staging directory: standard-format files there have usually "
+            "already been ingested by organize_archive.py, which does not write to "
+            "the conversion index, so this workflow cannot tell and would transcode "
+            "duplicates."
+        )
+    )
+
+    parser.add_argument(
         '--keep-originals',
         action='store_true',
         help="Keep original files after successful conversion"
@@ -356,6 +388,7 @@ def main():
         input_dir,
         dry_run=args.dry_run,
         keep_originals=args.keep_originals,
+        avchd_only=args.avchd_only,
         crf=args.crf,
         preset=args.preset,
         force_software=args.force_software

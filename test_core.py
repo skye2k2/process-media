@@ -51,6 +51,8 @@ from unittest.mock import MagicMock, patch
 SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
+import camcorder_convert
+import check_media_health
 import check_nas_archive
 import create_event_folders
 import duplicate_detector
@@ -2072,6 +2074,442 @@ class TestRemovalHistory(unittest.TestCase):
 
         self.assertTrue(history.was_removed("blocked.jpg"))
         self.assertFalse(history.was_removed("unrelated.jpg"))
+
+
+# ============================================================================
+# SECTION 13: Source Liveness Guard
+# ============================================================================
+
+class TestSourceLivenessGuard(unittest.TestCase):
+    """
+    Cover the guard against a source share disappearing mid-run.
+
+    Observed for real: undocking dropped the SMB share partway through a dry-run.
+    Every remaining file became unreadable, find_duplicate() reported "source does
+    not exist", and each one fell through and was counted as new — 4,114 files
+    flipped from skip to import. On a live run that would have imported thousands of
+    duplicates while reporting success.
+
+    An unreadable source is an error, never a new file.
+    """
+
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.incoming = self.temp_dir / "TO_PROCESS"
+        self.incoming.mkdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_vanished_source_is_a_failure_not_an_import(self):
+        """The core regression: absent source must never be reported as moved."""
+        ghost = self.incoming / "IMG_20240101_120000.jpg"
+
+        result, action = organize_archive.process_file(
+            ghost, detector=None, dry_run=True
+        )
+
+        self.assertEqual(result, 'failed')
+        self.assertEqual(action, 'source unreadable')
+
+    def test_guard_runs_before_the_detector_is_touched(self):
+        """
+        Passing detector=None proves the check happens before duplicate detection.
+        If the guard were later, this would raise AttributeError instead.
+        """
+        ghost = self.incoming / "DSCN0001.JPG"
+
+        try:
+            result, _ = organize_archive.process_file(ghost, detector=None, dry_run=True)
+        except AttributeError:
+            self.fail("the liveness guard must precede any detector use")
+
+        self.assertEqual(result, 'failed')
+
+    def test_existing_file_still_proceeds_past_the_guard(self):
+        """
+        The guard must not block a readable file. A stub detector reports no
+        duplicate, so a dry run should report the file as moved.
+        """
+        source = self.incoming / "IMG_20240101_120000.jpg"
+        source.write_bytes(b"\xff\xd8\xff\xe0" + b"payload" * 64)
+
+        stub = MagicMock()
+        stub.find_duplicate.return_value = duplicate_detector.DuplicateResult(
+            is_duplicate=False,
+            confidence=duplicate_detector.MatchConfidence.NONE,
+            existing_path=None,
+            prefer_existing=False,
+            reason="no match"
+        )
+
+        # skip_damaged is disabled because this test is about the liveness guard,
+        # not the integrity gate. The stub payload is not a decodable JPEG, so the
+        # integrity gate would (correctly) quarantine it and mask what is under test.
+        result, _ = organize_archive.process_file(
+            source, detector=stub, dry_run=True, skip_damaged=False
+        )
+
+        self.assertEqual(result, 'moved')
+        stub.find_duplicate.assert_called_once()
+
+
+class TestDamagedSourceQuarantine(unittest.TestCase):
+    """
+    Cover the integrity gate that holds a damaged source out of the archive.
+
+    Motivation: the health scan found 3 truncated JPEGs and a zero-byte file in the
+    PhotoSync source tree. Importing one of those would place a damaged copy in the
+    archive where a later review could choose it over a healthy one — and the review
+    tools rank by blur and resolution, neither of which notices truncation.
+
+    The gate sits immediately before the move, so only files that would actually be
+    imported pay for the decode.
+    """
+
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.incoming = self.temp_dir / "TO_PROCESS"
+        self.incoming.mkdir()
+
+        self.stub = MagicMock()
+        self.stub.find_duplicate.return_value = duplicate_detector.DuplicateResult(
+            is_duplicate=False,
+            confidence=duplicate_detector.MatchConfidence.NONE,
+            existing_path=None,
+            prefer_existing=False,
+            reason="no match"
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _real_jpeg(self, name):
+        import cv2
+        import numpy as np
+
+        path = self.incoming / name
+        cv2.imwrite(str(path), np.full((64, 64, 3), 96, dtype=np.uint8))
+        return path
+
+    def test_intact_file_imports(self):
+        source = self._real_jpeg("IMG_20240101_120000.jpg")
+
+        result, _ = organize_archive.process_file(
+            source, detector=self.stub, dry_run=True
+        )
+
+        self.assertEqual(result, 'moved')
+
+    def test_truncated_file_is_quarantined(self):
+        """The exact failure found in the PhotoSync tree."""
+        intact = self._real_jpeg("IMG_20240102_120000.jpg")
+        payload = intact.read_bytes()
+        intact.write_bytes(payload[:-30])
+
+        result, action = organize_archive.process_file(
+            intact, detector=self.stub, dry_run=True
+        )
+
+        self.assertEqual(result, 'damaged')
+        self.assertIn('truncated', action)
+
+    def test_zero_byte_file_is_quarantined(self):
+        empty = self.incoming / "IMG_20240103_120000.jpg"
+        empty.touch()
+
+        result, action = organize_archive.process_file(
+            empty, detector=self.stub, dry_run=True
+        )
+
+        self.assertEqual(result, 'damaged')
+        self.assertIn('empty', action)
+
+    def test_override_allows_a_damaged_import(self):
+        """--import-damaged must still work for a partial file worth keeping."""
+        intact = self._real_jpeg("IMG_20240104_120000.jpg")
+        intact.write_bytes(intact.read_bytes()[:-30])
+
+        result, _ = organize_archive.process_file(
+            intact, detector=self.stub, dry_run=True, skip_damaged=False
+        )
+
+        self.assertEqual(result, 'moved')
+
+    def test_gate_runs_only_after_duplicate_detection(self):
+        """
+        A skipped duplicate must not pay for a decode. If the source is a known
+        duplicate the detector short-circuits and the integrity check never runs.
+        """
+        source = self._real_jpeg("IMG_20240105_120000.jpg")
+        source.write_bytes(source.read_bytes()[:-30])   # damaged, but a duplicate
+
+        self.stub.find_duplicate.return_value = duplicate_detector.DuplicateResult(
+            is_duplicate=True,
+            confidence=duplicate_detector.MatchConfidence.EXACT,
+            existing_path=Path("/archive/already_here.jpg"),
+            prefer_existing=True,
+            reason="Byte-identical"
+        )
+
+        result, _ = organize_archive.process_file(
+            source, detector=self.stub, dry_run=True
+        )
+
+        self.assertEqual(result, 'skipped', "duplicates skip before the integrity gate")
+
+
+# ============================================================================
+# SECTION 14: Media Health Checks
+# ============================================================================
+
+class TestMediaHealthChecks(unittest.TestCase):
+    """
+    Cover check_media_health.py's per-file verdicts.
+
+    Regression context: the first run of this tool reported 103 archived files as
+    "unreadable", every one of them a HEIC. They were all perfectly readable — the
+    module simply never registered PIL's HEIF opener. A health checker that cries
+    wolf on an entire image format is worse than none at all, so the registration is
+    now covered by a test.
+    """
+
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _intact_jpeg(self, name="intact.jpg"):
+        """Write a small but genuinely valid JPEG."""
+        import cv2
+        import numpy as np
+
+        path = self.temp_dir / name
+        image = np.full((64, 64, 3), 128, dtype=np.uint8)
+        cv2.imwrite(str(path), image)
+        return path
+
+    def test_heif_opener_is_registered(self):
+        """
+        The 103-false-positive regression. PIL must recognise HEIC on import of this
+        module, otherwise every iPhone photo is reported as damaged.
+        """
+        if not check_media_health.HEIC_AVAILABLE:
+            self.skipTest("pillow-heif not installed")
+
+        from PIL import Image
+
+        self.assertIn(
+            'HEIF', Image.registered_extensions().get('.heic', 'HEIF'),
+            "PIL must map .heic to the HEIF plugin"
+        )
+
+    def test_truncated_file_is_detected(self):
+        intact = self._intact_jpeg()
+        payload = intact.read_bytes()
+        truncated = self.temp_dir / "truncated.jpg"
+        truncated.write_bytes(payload[:-40])
+
+        _, status, detail = check_media_health.check_file(truncated)
+
+        self.assertEqual(status, 'truncated')
+        self.assertIn('truncated', detail.lower())
+
+    def test_intact_file_passes(self):
+        _, status, _ = check_media_health.check_file(self._intact_jpeg())
+
+        self.assertEqual(status, 'ok')
+
+    def test_empty_file_is_flagged_separately(self):
+        """Zero bytes is its own category, not lumped in with unreadable."""
+        empty = self.temp_dir / "empty.jpg"
+        empty.touch()
+
+        _, status, detail = check_media_health.check_file(empty)
+
+        self.assertEqual(status, 'empty')
+        self.assertEqual(detail, 'zero bytes')
+
+    def test_non_image_masquerading_as_one(self):
+        bogus = self.temp_dir / "bogus.jpg"
+        bogus.write_text("this is not an image")
+
+        _, status, _ = check_media_health.check_file(bogus)
+
+        self.assertEqual(status, 'unreadable')
+
+    def test_unvalidatable_format_is_not_called_damaged(self):
+        """A format we cannot check must not be reported as broken."""
+        document = self.temp_dir / "notes.txt"
+        document.write_text("some text")
+
+        _, status, _ = check_media_health.check_file(document)
+
+        self.assertEqual(status, 'not_checked')
+
+    def test_zip_crc_corruption_is_caught(self):
+        """
+        The strongest check available, and the only one that can see damage inherited
+        from a pre-ZFS NAS: ZIP stores a CRC32 per member, so a single flipped byte is
+        provable rather than guessed at.
+        """
+        import zipfile
+
+        path = self.temp_dir / "document.docx"
+
+        with zipfile.ZipFile(path, 'w') as archive:
+            archive.writestr('word/document.xml', '<xml>' + 'content' * 200 + '</xml>')
+
+        payload = bytearray(path.read_bytes())
+
+        # Flip a byte inside the compressed member data, past the local header
+        payload[len(payload) // 2] ^= 0xFF
+        path.write_bytes(bytes(payload))
+
+        _, status, detail = check_media_health.check_file(path)
+
+        self.assertEqual(status, 'corrupt')
+        self.assertIn('CRC mismatch', detail)
+
+    def test_intact_zip_family_file_passes(self):
+        import zipfile
+
+        path = self.temp_dir / "sheet.xlsx"
+
+        with zipfile.ZipFile(path, 'w') as archive:
+            archive.writestr('xl/workbook.xml', '<workbook/>')
+
+        _, status, _ = check_media_health.check_file(path)
+
+        self.assertEqual(status, 'ok')
+
+    def test_non_zip_masquerading_as_office_document(self):
+        path = self.temp_dir / "fake.docx"
+        path.write_text("this is not a zip container")
+
+        _, status, _ = check_media_health.check_file(path)
+
+        self.assertEqual(status, 'unreadable')
+
+    def test_truncated_pdf_is_detected(self):
+        """A PDF must end with %%EOF; its absence means the write was cut short."""
+        path = self.temp_dir / "truncated.pdf"
+        path.write_bytes(b"%PDF-1.4\n" + b"object data " * 100)
+
+        _, status, detail = check_media_health.check_file(path)
+
+        self.assertEqual(status, 'truncated')
+        self.assertIn('%%EOF', detail)
+
+    def test_complete_pdf_passes(self):
+        path = self.temp_dir / "complete.pdf"
+        path.write_bytes(b"%PDF-1.4\n" + b"object data " * 100 + b"\n%%EOF\n")
+
+        _, status, _ = check_media_health.check_file(path)
+
+        self.assertEqual(status, 'ok')
+
+    def test_truncation_tolerance_stays_disabled(self):
+        """
+        PIL's LOAD_TRUNCATED_IMAGES must remain off. Turning it on anywhere in the
+        process would make every short file decode "successfully" and defeat the
+        entire purpose of this module.
+        """
+        from PIL import ImageFile
+
+        self.assertFalse(ImageFile.LOAD_TRUNCATED_IMAGES)
+
+
+# ============================================================================
+# SECTION 15: Camcorder Source-Deletion Guard and Pre-Screen
+# ============================================================================
+
+class TestStagingPathGuard(unittest.TestCase):
+    """
+    Cover is_staging_path(), which decides whether deleting a source is allowed.
+
+    camcorder_convert deletes each original after a successful conversion, and
+    keep_originals defaults to False. That is correct for a TO_PROCESS copy and
+    catastrophic for an archive: pointed at the NAS home-movies share it would have
+    deleted 675 original MTS files, 94 GB, which are the only copy.
+    """
+
+    def _staging(self, path):
+        return camcorder_convert.is_staging_path(path)
+
+    def test_staging_directory_permits_deletion(self):
+        self.assertTrue(self._staging("/repo/TO_PROCESS/CAMCORDER/00001.MTS"))
+
+    def test_nested_under_staging_still_permits(self):
+        self.assertTrue(self._staging("/repo/TO_PROCESS/batch/2013/deep/00001.MTS"))
+
+    def test_nas_share_refuses_deletion(self):
+        """The case that motivated the guard."""
+        self.assertFalse(self._staging("/Volumes/home-movies/2009/00006.MTS"))
+
+    def test_organized_archive_refuses_deletion(self):
+        self.assertFalse(self._staging("/repo/Organized_Videos/2013/09 September/x.mp4"))
+
+    def test_similarly_named_directory_is_not_staging(self):
+        """Only an exact path component counts, not a substring of one."""
+        self.assertFalse(self._staging("/repo/TO_PROCESS_OLD/00001.MTS"))
+        self.assertFalse(self._staging("/repo/MY_TO_PROCESS_BACKUP/00001.MTS"))
+
+
+class TestDurationPlausibility(unittest.TestCase):
+    """
+    Cover duration_is_plausible(), which rejects corrupt timing metadata.
+
+    Real case: 2010/00057.MTS reports 66,315 seconds (18.4 hours) for a 142 MB file
+    while only 610 frames decode. Handing that duration to the encoder risks a
+    run-away job that consumes a night and produces garbage.
+    """
+
+    def _check(self, duration, size):
+        return camcorder_convert.duration_is_plausible(Path("x.MTS"), duration, size)
+
+    def test_real_corrupt_case_is_rejected(self):
+        plausible, why = self._check(66315.725589, 142_600_000)
+
+        self.assertFalse(plausible)
+        self.assertIn('corrupt', why)
+
+    def test_normal_avchd_is_accepted(self):
+        """225 MB over 100 seconds is about 18 Mbps -- squarely normal AVCHD."""
+        plausible, _ = self._check(100.0, 225_000_000)
+
+        self.assertTrue(plausible)
+
+    def test_short_clip_is_accepted(self):
+        """A 2 MB two-second clip is still a sane 8 Mbps."""
+        plausible, _ = self._check(2.0, 2_000_000)
+
+        self.assertTrue(plausible)
+
+    def test_zero_duration_is_rejected(self):
+        plausible, why = self._check(0, 100_000_000)
+
+        self.assertFalse(plausible)
+        self.assertIn('zero or missing', why)
+
+    def test_missing_duration_is_rejected(self):
+        plausible, _ = self._check(None, 100_000_000)
+
+        self.assertFalse(plausible)
+
+    def test_threshold_is_honoured_not_hardcoded(self):
+        """The bound must come from the constant so it can be retuned in one place."""
+        threshold = camcorder_convert.MIN_PLAUSIBLE_BITRATE_BPS
+        size = 10_000_000
+
+        # Just above the bound
+        plausible, _ = self._check(size * 8 / (threshold * 1.1), size)
+        self.assertTrue(plausible)
+
+        # Just below it
+        plausible, _ = self._check(size * 8 / (threshold * 0.9), size)
+        self.assertFalse(plausible)
 
 
 # ============================================================================

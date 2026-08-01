@@ -448,6 +448,206 @@ Ladder crops are exported to `.TMP_calibration/ladder/` as lossless PNG, named w
 - **`find_duplicate()` picks an arbitrary sibling.** When several archived files share one timestamp, candidates are examined in index order, so which one a source is compared against depends on index ordering. In this case a full-resolution original and a `~2` crop shared a timestamp and the crop came first. Minor, but it makes some verdicts order-dependent.
 - For the calibration photo, the full-resolution original is **already archived** at 4,356,523 bytes against the PhotoSync original's 4,356,524 — a one-byte difference. Some PhotoSync files are already present at full quality, reinforcing that prevalence needs proper measurement.
 
+## PLAN: processing the home-movies share (measured 2026-07-31)
+
+130 GB, 1,465 files, 2009–2022, never ingested. Overlap was measured rather than guessed, and it differs sharply between the two halves of the share.
+
+### 🔴 Read this before running anything: the camcorder workflow deletes its sources
+
+`camcorder_convert.py:947` deletes each original after a successful conversion, and `keep_originals` **defaults to False**. That default is correct for its designed use — a local `TO_PROCESS/` staging copy, where the original is a duplicate that should not linger. Pointed at a NAS archive it is destructive: `workflow_camcorder.py /Volumes/home-movies` would delete **675 original MTS files, 94 GB**, which are currently the only copy.
+
+**`--keep-originals` is mandatory for this batch.** A guard is worth adding — refuse to delete when the source directory is outside `TO_PROCESS/`, since a source that is not a staging area is an archive.
+
+### Track A — non-AVCHD, 713 files: 94% already archived
+
+Measured with a real `organize_archive.py --dry-run`, which correctly skips `.mts`:
+
+| verdict | count |
+|---|---|
+| Already in the archive | 673 |
+| **Would import** | **40** (21 loose + 19 across 2 project folders) |
+
+Skips break down as 645 exact duration+size matches, 16 re-encode bloat, and a handful byte-identical. So the "high overlap" expectation was right for this half — these MP4s are almost entirely already ingested.
+
+Cheap: minutes, and it exercises the new gates on a fresh tree. **Do this first.**
+
+### Why so little AVCHD overlap — confirmed by a second, independent method
+
+The 7% figure looked wrong against the 462 already-converted videos in the archive, and the objection was reasonable: does the matching account for the fact that conversion renames files?
+
+It does, and the number holds. Two independent methods agree exactly:
+
+| method | already archived | genuinely new | undated |
+|---|---|---|---|
+| `conversion_index` on (creation_date, file_size) | 53 | 675 | 11 |
+| Recording timestamp embedded in output filenames | 53 | 675 | 11 |
+
+The second method is the stronger check and is immune to the concern: `camcorder_convert` names its output `YYYYMMDD_HHMMSS_CAM.h265.mp4` from the original's recording time, so the timestamp survives both transcoding and renaming. Matching on it needs no filename correspondence at all.
+
+**The explanation is that camcorder filenames are recycled.** Every card restarts numbering at `00000.MTS`, so the same name means nothing across cards. Measured directly: NAS `00003.MTS` is 185,382,912 bytes while the index records `00003.MTS` at 49,336,320 bytes — same name, unrelated footage. This is exactly why `conversion_index.py` keys on date and size rather than name, as its docstring says outright.
+
+**So the 462 converted videos are not 462 recordings from this share.** They came from `TO_PROCESS/CAMCORDER BACKUPS/Camcorder 2013/Z First Year/`, and only **53** of them correspond to footage on the NAS — every confirmed match sits in `2013/105/`, a single card. The other 409 converted videos are footage that is not on this share at all. The February batch and the home-movies share are two largely separate collections, which is why the totals do not net out the way they appear they should.
+
+**A rejected approach, recorded so it is not retried.** Overlap was also tested by matching container duration, on the reasoning that transcoding preserves running time. It reported 94.3% already archived — and was completely wrong. With 2,169 archived videos and a ±1.5s tolerance, nearly everything finds a coincidental twin: a 2009 camcorder clip "matched" a 2018 phone video, and two different clips matched the same archived file. Duration is far too weak a signal on its own for a library this size, especially for short clips. Use the recording timestamp.
+
+### Track B — AVCHD, 728 MTS files: only 7% already converted
+
+Measured against `conversion_index.py`, which keys on `(creation_date, file_size)` of the original precisely because camcorder filenames are useless. Content hashing cannot answer this — archived copies are lossy H.265 transcodes.
+
+| verdict | count | size |
+|---|---|---|
+| Already converted | 53 | — |
+| **Not yet converted** | **675** | **94.1 GB** |
+| No extractable date (needs review) | 11 | — |
+| Zero-byte (damaged) | 11 | — |
+
+Only 36 files from 2013 and 17 from 2019 were ever converted — the February run drew from `TO_PROCESS/CAMCORDER BACKUPS/Camcorder 2013/`, a small subset. **So the overlap intuition was wrong for this half: the great majority is genuinely new.** Distribution: 2011 Summer Vacation (121 files, 16 GB), 2014 (163, 21.7 GB), 2013 (122, 22.7 GB), 2012 (104, 15.8 GB), 2015 (65, 8.8 GB), plus 2009–2011 and 2016.
+
+**Cost, derived from real throughput rather than estimated.** The conversion index records `converted_at` per entry: the February run converted 47.3 GB in 6.8 hours of wall time — **6.92 GB/hour** with `libx265` at preset `slow`, CRF 26. So 94.1 GB is about **14 hours**. Overnight, not multi-day.
+
+**Wifi is not the bottleneck.** 6.92 GB/hour is roughly 2 MB/s of reading, far inside what the share sustains. Encoding dominates, so processing in place is viable and no 94 GB local copy is needed.
+
+**It is also resumable.** The conversion index is persistent and written per file, so a dropped share costs only the in-flight conversion rather than the run.
+
+### CORRECTION: the undated-AVCHD repair is not needed
+
+The plan called for repairing 11 undated AVCHD files with `apply_date_from_neighbor.py`. **That step is unnecessary**, and the recommendation came from a flawed measurement: the probe called `get_creation_date_exiftool()` and `get_creation_date_ffprobe()` directly, skipping the `get_creation_date()` wrapper (`camcorder_convert.py:200`) which already falls back to filesystem mtime as a third tier.
+
+Verified against the real chain — all 11 resolve, and **every derived date matches its containing folder's year**:
+
+| file | derived date | source |
+|---|---|---|
+| 2009/00006.MTS | 2009-12-25 19:12:20 | file_mtime |
+| 2009/00023.MTS | 2009-12-25 19:36:22 | file_mtime |
+| 2009/00026.MTS | 2009-12-25 19:41:02 | file_mtime |
+| 2009/00027.MTS | 2009-12-25 19:42:16 | file_mtime |
+| 2010/00033–00066 (7 files) | 2010-01-24 … 2010-04-09 | file_mtime |
+
+Corroborating detail: the four 2009 files land on Christmas evening within a session of roughly twenty other clips timestamped 18:58–19:32 the same night. These mtimes are trustworthy, whatever the code's "unreliable" label says about mtime in general.
+
+Also worth noting for future reference: `apply_date_from_neighbor.py` does **not** write EXIF — it sets filesystem mtime via `touch -t`, specifically so mtime-fallback paths pick it up. Which is fortunate, because **exiftool cannot write to MTS at all** ("Error: Not a valid MTS"). AVCHD is a transport stream, not a metadata container.
+
+### Three damaged AVCHD files need dispositions before Track B
+
+`2009/00006.MTS` (225 MB) and `2009/00026.MTS` (107 MB) are **not recoverable**. They are not truncated — they are structurally scrambled. A valid MTS begins with sync byte `0x47` and repeats it every 188 bytes; these begin with `0e02 6a94…` and `d13a ba57…`, the first `0x47` appears at offset 955 and 678 respectively, and 188-byte alignment fails from there. Forcing `-f mpegts` yields "max resync size reached, could not find sync byte". ffmpeg cannot open either even with `-err_detect ignore_err`.
+
+**This failure mode differs from the PhotoSync damage, and the difference is informative.** Those photos were truncated — an interrupted write leaving a short but otherwise valid file. These two contain wrong data throughout, which an interrupted write cannot produce. Scrambled content is what corruption inherited from an earlier NAS generation looks like, and it is consistent with the year-clustering of all 19 problems in 2009, 2010 and 2014.
+
+Mitigation: the loss is bounded. Both sit inside the 2009-12-25 session, which has roughly twenty healthy clips spanning 18:58–19:32. The evening is well covered; two clips from it are gone.
+
+`2010/00057.MTS` (142 MB) is a **live operational hazard for the overnight run**. It opens, but reports a duration of **66,315 seconds — 18.4 hours** for a 142 MB file, and only 610 frames (about 20 seconds) actually decode. Handed to the encoder unmodified, that bogus duration risks a run-away job that consumes the night and produces garbage. **Exclude it explicitly before starting Track B**, and convert it separately with an explicit `-t` limit if the recoverable 20 seconds is wanted.
+
+### Recommended sequence
+
+1. **Track A** — `organize_archive.py /Volumes/home-movies` (40 files, minutes). Low risk, and confirms the gates behave on this share.
+2. **Repair the 11 undated AVCHD** with `apply_date_from_neighbor.py`, which exists for exactly this. Without a date they cannot be keyed, indexed, or filed.
+3. **Quarantine the 11 zero-byte 2014 files** and check whether their content survives elsewhere — `_Produced` (14 GB) may contain edited versions covering the same footage.
+4. **Track B overnight** with `--keep-originals`, `--dry-run` first.
+5. Then event folders and a review pass over the newly-arrived material.
+
+### Documentation drift found while planning
+
+README's Encoding Settings table lists **CRF 20** and the code uses **26** (`camcorder_convert.py:52`, with the comment "was 20, but produced bloated files"). The code is right; the README is stale and should be corrected before someone tunes against the wrong number.
+
+---
+
+## Media health scan results (2026-07-31)
+
+| tree | files | damaged | detail |
+|---|---|---|---|
+| `Organized_Photos` (local archive) | 35,210 | **0** | 58 not_checked: JSON caches, removal scripts, HTML reports |
+| `Organized_Videos` (local archive) | — | **0** | clean |
+| `/Volumes/photosync/Photo Uploads` | 8,631 | **4** | 3 truncated JPEG, 1 zero-byte |
+| `/Volumes/photosync/2021GooglePhotoArchive` | 13,889 | **0** | clean |
+| `/Volumes/home-movies` | 1,465 | **19** | 11 zero-byte, 6 suspect, 2 unreadable — all MTS |
+| `/Volumes/photosync/NIKON` | 4,502 | **0** | clean |
+
+**The local archive is clean.** That is the copy everything else is compared against, so it is the reassuring result.
+
+### ZFS cannot help with this, which changes the plan
+
+The data has crossed three NAS generations and only the current one runs ZFS. A scrub verifies that what ZFS *received* is what it *returns* — anything that arrived already damaged from the earlier two has been faithfully checksummed as "correct" ever since. **A scrub will come back clean and say nothing about inherited corruption.** Format-level validation is therefore not a secondary check but the only one that can see pre-migration damage, which is why `check_media_health.py` was extended beyond images.
+
+### The damage clusters by year, which supports that theory
+
+Every one of the 19 problems on `home-movies` is an MTS file, and all fall in **2009, 2010, or 2014** — none in 2011–2013 or 2015–2022. Random bit rot would scatter. Clustering in the oldest, most-migrated content is what inherited damage looks like:
+
+- **2014:** 11 zero-byte files, contiguously numbered `00123.MTS` through `00133.MTS`. A single interrupted bulk copy.
+- **2009:** `00026.MTS` and `00006.MTS` unreadable ("Invalid data found when processing input"); `00030.MTS`, `00010.MTS`, `00003.MTS` decode with H.264 stream errors ("non-existing PPS 0 referenced", "no frame!").
+- **2010:** `00042.MTS`, `00050.MTS`, `00057.MTS` with the same class of stream damage, plus "error while decoding MB 47 22, bytestream -25".
+
+The "suspect" ones still play, mostly — the errors are localized stream damage, not total loss. Worth watching before deciding anything.
+
+### This resolves a long-standing TODO: the missing home movies are here
+
+`/Volumes/home-movies` is **130 GB across 1,465 files spanning 2009–2022** and had never been examined, because the share was not mounted in any earlier session. The TODO asks for "our missing home movies (2013-2016, 2017-2019)" and the share covers exactly that:
+
+| year | files | size |
+|---|---|---|
+| 2013 | 158 | 25 GB |
+| 2014 | 179 | 20 GB |
+| 2015 | 68 | 8.3 GB |
+| 2016 | 45 | 1.5 GB |
+| 2017 | 140 | 2.1 GB |
+| 2018 | 138 | 1.7 GB |
+| 2019 | 130 | 3.9 GB |
+
+Plus 2009–2012, 2020–2022, and named event folders (`2011 Summer Vacation` at 15 GB, `2012 Christmas`, `2011 Mommy Piano Videos`, `_Produced` at 14 GB). Nothing here has been ingested. This is a whole fourth batch, larger than the other three combined.
+
+### Correction: the BUG-8 "residual false skips" were damaged files
+
+The full audit left 5 unexplained skip decisions. Three of them — `IMG_20220704_152930970.jpg`, `IMG_20221013_210812616.jpg`, `IMG_20220621_172652412_HDR.jpg` — appear **verbatim** in the truncated-file list above. They were not detection failures; the source files are damaged, and a truncated JPEG decodes to different dimensions, which is exactly what the audit flagged. A fourth was an EXIF-orientation artifact of the audit itself.
+
+So the true residual false-skip rate is roughly **1 in 3,780 (0.03%)**, not 0.1%.
+
+### Three bugs in the health checker, found by running it
+
+1. **103 HEIC false positives.** PIL was never given the HEIF opener, so every iPhone photo reported "cannot identify image file". Fixed; HEIC now reports `not_checked` rather than "damaged" if pillow-heif is genuinely absent.
+2. **741 of 1,465 `home-movies` files went unvalidated** — 750 AVCHD clips nobody had ever checked. `.mts` is deliberately excluded from `VIDEO_EXTENSIONS` because `workflow_camcorder.py` owns AVCHD routing, but integrity still needs checking. Fixed by reusing the existing `AVCHD_EXTENSIONS` constant plus other containers ffprobe reads.
+3. **Documents were not covered at all**, despite the concern being about more than photos. Added ZIP-family CRC verification (`.docx`, `.xlsx`, `.pptx`, OpenDocument, `.epub`, `.zip`) and a PDF `%%EOF` check. **The ZIP check is the strongest verification in the project** — ZIP stores a CRC32 per member, so `testzip()` proves damage rather than inferring it, and it works on exactly the pre-ZFS-migration corruption a scrub cannot see.
+
+---
+
+## ✅ PhotoSync import is now safe to run (verified 2026-07-31)
+
+With the v15 gates in place, the dry-run over all 8,609 files:
+
+| verdict | count |
+|---|---|
+| **Would import** | **649** |
+| Skipped | 7,960 |
+| Failed | 0 |
+
+Down from 4,466 would-import before the gates — an **85% reduction**. Skip reasons:
+
+| reason | count |
+|---|---|
+| Same date pattern, exact size | 3,724 |
+| **Same photograph, different compression** (the 0.92 gate) | **3,638** |
+| **Deliberately removed in an earlier review** (removal history) | **229** |
+| Exact match, video duration + size | 194 |
+| Re-encoded bloat, prefer smaller | 143 |
+| Byte-identical content hash | 21 |
+| Same date pattern, similar size | 6 |
+
+**Cross-validation:** the independent classification predicted 372 genuinely new plus 278 with no date pattern = **650**. The live run reported **649**. Two different methods agreeing to within one file is strong evidence both are right.
+
+**The 229 matter most.** Those are photographs deliberately deleted in earlier review passes that every previous version of the importer would have restored, requiring the same review attention a second time.
+
+Zero failures also confirms the wifi share held for the whole run, and that the new liveness guard did not produce false alarms.
+
+**Remaining before a live import:** run `check_media_health.py` over the source tree so damaged files are known rather than imported blind.
+
+---
+
+## Newly available: the `home-movies` share
+
+Remounting brought up four shares rather than two: `photos`, `photosync`, `videos`, and **`home-movies`**. That last one has never been examined and is exactly what the long-standing TODO points at — "find our missing home movies (2013-2016, 2017-2019)". `check_nas_archive.py` already documents `/Volumes/home-movies` in its usage examples, so it was anticipated but never reachable in this session until now.
+
+Worth a `check_nas_archive.py` pass to find out what is on it.
+
+---
+
 ## Overnight analysis results (2026-07-31) — read this first
 
 Five phases, all completed, 25 minutes total. Logs in `.TMP_overnight/`.

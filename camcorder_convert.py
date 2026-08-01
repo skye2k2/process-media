@@ -29,6 +29,7 @@ from datetime import datetime
 from pathlib import Path
 
 from build_file_index import build_file_index
+from check_media_health import check_file as check_media_file
 from conversion_index import (
     add_to_index,
     load_index,
@@ -51,6 +52,18 @@ VIDEO_OUTPUT_DIR = SCRIPT_DIR / "Organized_Videos"
 # Preset "slow" trades encoding time for better compression
 FFMPEG_CRF = 26
 FFMPEG_PRESET = "slow"
+
+# Only a staging directory is safe to delete sources from. A directory named
+# TO_PROCESS holds copies placed there for ingestion; anywhere else is somebody's
+# archive. Pointing this tool at a NAS share with deletion enabled would destroy
+# originals that are the only copy.
+STAGING_DIR_NAME = "TO_PROCESS"
+
+# AVCHD runs 17-24 Mbps. A file whose reported duration implies a bitrate far below
+# that has corrupt timing metadata, not remarkable compression. One real example
+# claimed 66,315 seconds (18.4 hours) for 142 MB -- roughly 17 kbps -- while only
+# 610 frames actually decoded. Encoding against that duration risks a run-away job.
+MIN_PLAUSIBLE_BITRATE_BPS = 200_000
 FFMPEG_AUDIO_BITRATE = "192k"
 
 # Noise detection threshold for encoder selection
@@ -773,23 +786,81 @@ def move_to_destination(file_path, dest_folder, filename, dry_run=False):
 # MAIN PROCESSING
 # ============================================================================
 
-def scan_video_files(input_dir):
+def is_staging_path(file_path):
     """
-    Scan directory for all video files that might need conversion.
+    Report whether a file sits inside a staging directory.
 
-    Scans for both AVCHD files (.MTS/.M2TS) and standard video formats.
-    Codec detection happens during processing to determine if conversion is needed.
+    Deleting a source is only appropriate when that source is a copy placed for
+    ingestion. A path outside TO_PROCESS is an archive -- a NAS share, a card, a
+    library -- and its originals may be the only copy in existence.
 
     Args:
-        input_dir: Directory to scan (recursively)
+        file_path: Path to the source file
+
+    Returns:
+        bool: True if the path lies under a TO_PROCESS directory
+    """
+    return STAGING_DIR_NAME in Path(file_path).resolve().parts
+
+
+def duration_is_plausible(file_path, duration, file_size):
+    """
+    Sanity-check a reported duration against the file's size.
+
+    Corrupt timing metadata produces absurd durations, and handing one to the
+    encoder means it tries to produce hours of output from a file that holds
+    seconds of decodable video.
+
+    Args:
+        file_path:  Path being checked, for the message only
+        duration:   Reported duration in seconds
+        file_size:  Size in bytes
+
+    Returns:
+        tuple (bool, str): plausibility and an explanation when implausible
+    """
+    if not duration or duration <= 0:
+        return False, "reported duration is zero or missing"
+
+    implied_bps = (file_size * 8) / duration
+
+    if implied_bps < MIN_PLAUSIBLE_BITRATE_BPS:
+        return False, (
+            f"reported duration {duration:.0f}s implies only "
+            f"{implied_bps / 1000:.0f} kbps for {file_size / 1e6:.0f} MB "
+            f"-- timing metadata is corrupt"
+        )
+
+    return True, ""
+
+
+def scan_video_files(input_dir, avchd_only=False):
+    """
+    Scan directory for video files that might need conversion.
+
+    By default scans both AVCHD (.MTS/.M2TS) and standard video formats, since a
+    TO_PROCESS staging directory may hold a mix and codec detection sorts them out
+    during processing.
+
+    `avchd_only` narrows it to AVCHD, which matters when pointing this at an archive
+    rather than a staging directory. Standard-format files there have usually already
+    been ingested by organize_archive.py, and that path does NOT write to the
+    conversion index — so this workflow cannot tell they are already present and would
+    happily transcode H.265 duplicates alongside them. Measured on the home-movies
+    share: 679 of the files scanned were MP4s, 673 of which were already archived.
+
+    Args:
+        input_dir:  Directory to scan (recursively)
+        avchd_only: Restrict to .MTS/.M2TS
 
     Returns:
         list: Sorted list of Path objects for video files
     """
     files = []
 
-    # Scan for all video extensions (AVCHD + standard formats)
-    for ext in ALL_VIDEO_EXTENSIONS:
+    extensions = AVCHD_EXTENSIONS if avchd_only else ALL_VIDEO_EXTENSIONS
+
+    for ext in extensions:
         files.extend(input_dir.rglob(f"*{ext}"))
 
     # Sort by name for predictable processing order
@@ -797,6 +868,7 @@ def scan_video_files(input_dir):
 
 
 def process_file(file_path, file_index, conversion_index, dry_run=False, keep_original=False,
+                 skip_damaged=True,
                  crf=FFMPEG_CRF, preset=FFMPEG_PRESET, force_software=False):
     """
     Process a single video file: check codec, extract date, convert if needed, organize.
@@ -835,9 +907,29 @@ def process_file(file_path, file_index, conversion_index, dry_run=False, keep_or
     print(f"    Original size: {original_size_mb:.1f} MB")
 
     # Step 0.5: Analyze video complexity for encoder selection
+    # Step 0: refuse damaged input before spending anything on it. An encode is
+    # expensive and a damaged source either fails partway or yields garbage, and a
+    # 14-hour batch should not be derailed by a file we already know is broken.
+    if skip_damaged:
+        _, health, health_detail = check_media_file(file_path)
+
+        if health not in ('ok', 'not_checked'):
+            print(f"    SKIPPED: source is not intact ({health})")
+            print(f"      {health_detail[:100]}")
+            return 'damaged', None, None, None
+
     video_info = get_video_info(file_path)
     is_noisy, bpp, noise_reason = is_noisy_video(file_path, video_info)
     duration = video_info.get('duration', 0) if video_info else 0
+
+    # Corrupt timing metadata makes the encoder try to produce hours of output from
+    # seconds of decodable video. Caught here rather than discovered overnight.
+    if skip_damaged:
+        plausible, why = duration_is_plausible(file_path, duration, original_size)
+
+        if not plausible:
+            print(f"    SKIPPED: {why}")
+            return 'damaged', None, None, None
 
     if force_software:
         use_software = True
@@ -944,13 +1036,21 @@ def process_file(file_path, file_index, conversion_index, dry_run=False, keep_or
         relative_output = final_path.relative_to(VIDEO_OUTPUT_DIR)
         add_to_index(conversion_index, creation_date, original_size, file_path, relative_output)
 
-    # Step 7: Delete original if requested
+    # Step 7: Delete original if requested -- but never outside a staging directory.
+    # The default is to delete, which is correct for a TO_PROCESS copy and
+    # catastrophic for an archive: pointing this at a NAS share would remove
+    # originals that are the only copy. Refuse rather than trust the flag.
     if not keep_original and not dry_run:
-        try:
-            file_path.unlink()
-            print(f"    Deleted original: {file_path.name}")
-        except Exception as e:
-            print(f"    Warning: Could not delete original: {e}")
+        if not is_staging_path(file_path):
+            print(f"    KEPT original: {file_path.name}")
+            print(f"      (outside {STAGING_DIR_NAME}/ -- refusing to delete from what "
+                  f"looks like an archive)")
+        else:
+            try:
+                file_path.unlink()
+                print(f"    Deleted original: {file_path.name}")
+            except Exception as e:
+                print(f"    Warning: Could not delete original: {e}")
 
     return 'converted', final_path, creation_date, encoder_info
 

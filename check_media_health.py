@@ -34,6 +34,7 @@ import argparse
 import json
 import subprocess
 import sys
+import zipfile
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -41,11 +42,43 @@ from pathlib import Path
 
 from PIL import Image, ImageFile
 
-from media_utils import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
+from media_utils import AVCHD_EXTENSIONS, PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
 
 # Refuse PIL's default tolerance. Silently accepting short files is precisely the
 # behaviour that let a damaged photo pass unnoticed.
 ImageFile.LOAD_TRUNCATED_IMAGES = False
+
+# HEIC needs an explicit opener registration before PIL will touch it. Without this
+# every iPhone photo reports "cannot identify image file" and gets flagged as
+# damaged — a first run of this tool produced 103 such false positives across the
+# archive, all of them perfectly readable files.
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+    HEIC_AVAILABLE = True
+except ImportError:
+    HEIC_AVAILABLE = False
+
+HEIC_SUFFIXES = {'.heic', '.heif'}
+
+# ZIP containers with per-member CRCs. Office and OpenDocument formats are ZIPs, so
+# these get the strongest verification available here.
+ZIP_FAMILY_SUFFIXES = {
+    '.zip', '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp', '.epub', '.numbers',
+    '.pages', '.key',
+}
+
+PDF_SUFFIXES = {'.pdf'}
+
+# Containers ffprobe can validate that are NOT in VIDEO_EXTENSIONS. Their absence
+# there is deliberate -- the organizing workflows skip AVCHD because
+# workflow_camcorder.py owns it -- but integrity still needs checking. Without this
+# the home-movies share reported 741 of 1,465 files as unvalidatable, which is 750
+# AVCHD clips nobody had ever verified.
+EXTRA_VIDEO_SUFFIXES = (
+    {extension.lower() for extension in AVCHD_EXTENSIONS}
+    | {'.mpg', '.mpeg', '.m2v', '.vob', '.flv', '.webm', '.mkv', '.wmv', '.3gp'}
+)
 
 # I/O bound rather than CPU bound, and often across a network share, so threads
 # rather than processes. Capped per the project's convention.
@@ -134,6 +167,75 @@ def check_video(path):
     return 'ok', ''
 
 
+def check_zip_family(path):
+    """
+    Verify a ZIP-based file by testing the CRC of every member.
+
+    This is the strongest check available anywhere in this module, and it is not
+    limited to media. Office documents (.docx, .xlsx, .pptx), OpenDocument files and
+    .epub are all ZIP containers, and ZIP stores a CRC32 per member. testzip()
+    recomputes every one, so any altered or missing byte is caught outright — no
+    heuristics involved.
+
+    That matters more than it first appears: this data has crossed three NAS
+    generations and only the current one uses ZFS, so any corruption inherited from
+    the earlier two was copied in already damaged and has been checksummed as
+    "correct" ever since. A ZFS scrub cannot see it. A CRC test can.
+
+    Args:
+        path: Path to a ZIP-based file
+
+    Returns:
+        tuple (status, detail)
+    """
+    try:
+        with zipfile.ZipFile(path) as archive:
+            bad_member = archive.testzip()
+
+        if bad_member is not None:
+            return 'corrupt', f"CRC mismatch in member: {bad_member}"
+
+    except zipfile.BadZipFile as error:
+        return 'unreadable', f"not a valid zip container: {error}"
+
+    except OSError as error:
+        return 'unreadable', str(error)
+
+    return 'ok', ''
+
+
+def check_pdf(path):
+    """
+    Check a PDF for its end-of-file marker.
+
+    PDF requires a trailing `%%EOF`. Its absence means the file was truncated, which
+    is the same interrupted-write failure that damaged a photo in the source tree.
+    This does not validate the internal object graph — a full parse would need a PDF
+    library — so it catches truncation but not deeper corruption.
+
+    Args:
+        path: Path to a PDF
+
+    Returns:
+        tuple (status, detail)
+    """
+    try:
+        with open(path, 'rb') as handle:
+            # The marker may be followed by trailing whitespace or newlines
+            handle.seek(0, 2)
+            tail_size = min(handle.tell(), 2048)
+            handle.seek(-tail_size, 2)
+            tail = handle.read()
+
+    except OSError as error:
+        return 'unreadable', str(error)
+
+    if not tail.strip().endswith(b'%%EOF'):
+        return 'truncated', 'missing %%EOF marker'
+
+    return 'ok', ''
+
+
 def check_file(path):
     """
     Dispatch a single file to the appropriate integrity check.
@@ -154,10 +256,21 @@ def check_file(path):
 
     suffix = path.suffix.lower()
 
+    # Be honest about an unvalidatable format rather than calling it damaged. If the
+    # HEIF opener is missing, HEIC files cannot be judged either way, and reporting
+    # them as broken would be a false alarm on thousands of iPhone photos.
+    if suffix in HEIC_SUFFIXES and not HEIC_AVAILABLE:
+        return path, 'not_checked', 'pillow-heif not installed; cannot validate HEIC'
+
     if suffix in {extension.lower() for extension in PHOTO_EXTENSIONS}:
         status, detail = check_image(path)
-    elif suffix in {extension.lower() for extension in VIDEO_EXTENSIONS}:
+    elif suffix in {extension.lower() for extension in VIDEO_EXTENSIONS} \
+            or suffix in EXTRA_VIDEO_SUFFIXES:
         status, detail = check_video(path)
+    elif suffix in ZIP_FAMILY_SUFFIXES:
+        status, detail = check_zip_family(path)
+    elif suffix in PDF_SUFFIXES:
+        status, detail = check_pdf(path)
     else:
         status, detail = 'not_checked', 'format not validatable'
 
@@ -187,6 +300,7 @@ Statuses:
   empty        zero bytes
   unreadable   could not be decoded at all
   suspect      probed with warnings (videos)
+  corrupt      CRC mismatch inside a zip-based file -- bytes have changed
   not_checked  format cannot be validated generically
         """
     )
