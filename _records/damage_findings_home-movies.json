@@ -1,0 +1,825 @@
+[
+  {
+    "status": "entirely foreign",
+    "detail": "no TS structure anywhere at the start; content is unidentified compressed data",
+    "foreign_verdict": "unidentified compressed data",
+    "evidence": "entropy 8.00 bits/byte",
+    "splice_offset": 0,
+    "bytes_foreign": 225552384,
+    "fraction_foreign": 1.0,
+    "path": "/Volumes/home-movies/2009/00006.MTS"
+  },
+  {
+    "status": "spliced",
+    "detail": "continuous transport stream to 669,764 bytes (1.0%); 63.4 MB is not a transport stream at all (another transport stream, foreign format); 4.2 MB is transport-stream data on a different packet grid (donor blocks, or this recording resuming after a gap)",
+    "foreign_verdict": "foreign format",
+    "foreign_verdicts": [
+      "another transport stream",
+      "foreign format"
+    ],
+    "evidence": "host grid stride 192 phase 68; MP3 (LAME tag) x2, MP3 (ID3 tag) x1, MP3 (Xing header) x1, JPEG x3; entropy 7.98",
+    "splice_offset": 669764,
+    "regions": [
+      {
+        "state": "foreign",
+        "start": 669764,
+        "end": 36700160,
+        "phase": null,
+        "verdict": "foreign format",
+        "evidence": "MP3 (LAME tag) x2, MP3 (ID3 tag) x1, MP3 (Xing header) x1, JPEG x3; entropy 7.98",
+        "bytes": 36030396
+      },
+      {
+        "state": "shifted",
+        "start": 36700160,
+        "end": 38797312,
+        "phase": 68,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 68, sync 1.000; also JPEG x3",
+        "bytes": 2097152
+      },
+      {
+        "state": "foreign",
+        "start": 38797312,
+        "end": 60817408,
+        "phase": null,
+        "verdict": "foreign format",
+        "evidence": "JPEG x6, PNG x1, RIFF (AVI/WAV) x4; entropy 7.93",
+        "bytes": 22020096
+      },
+      {
+        "state": "shifted",
+        "start": 60817408,
+        "end": 62914560,
+        "phase": 68,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 68, sync 1.000; also MP3 (LAME tag) x142",
+        "bytes": 2097152
+      },
+      {
+        "state": "foreign",
+        "start": 62914560,
+        "end": 68278272,
+        "phase": null,
+        "verdict": "foreign format",
+        "evidence": "MP3 (LAME tag) x65; entropy 7.89",
+        "bytes": 5363712
+      }
+    ],
+    "region_count": 5,
+    "bytes_foreign": 63414204,
+    "bytes_phase_shifted": 4194304,
+    "fraction_foreign": 0.9287611145167821,
+    "fraction_discontinuous": 0.9901906714920964,
+    "foreign_bytes_approximate": true,
+    "path": "/Volumes/home-movies/2009/00010.MTS"
+  },
+  {
+    "status": "spliced",
+    "detail": "continuous transport stream to 27,095,044 bytes (28.6%); 34.8 MB is not a transport stream at all (unidentified compressed data)",
+    "foreign_verdict": "unidentified compressed data",
+    "foreign_verdicts": [
+      "unidentified compressed data"
+    ],
+    "evidence": "host grid stride 192 phase 4; entropy 7.98 bits/byte",
+    "splice_offset": 27095044,
+    "regions": [
+      {
+        "state": "foreign",
+        "start": 27095044,
+        "end": 28311552,
+        "phase": null,
+        "verdict": "unidentified compressed data",
+        "evidence": "entropy 7.98 bits/byte",
+        "bytes": 1216508
+      },
+      {
+        "state": "foreign",
+        "start": 59768832,
+        "end": 93323264,
+        "phase": null,
+        "verdict": "unidentified compressed data",
+        "evidence": "entropy 7.98 bits/byte",
+        "bytes": 33554432
+      }
+    ],
+    "region_count": 2,
+    "bytes_foreign": 34770940,
+    "bytes_phase_shifted": 0,
+    "fraction_foreign": 0.3671315395583306,
+    "fraction_discontinuous": 0.3671315395583306,
+    "foreign_bytes_approximate": true,
+    "path": "/Volumes/home-movies/2009/00009.MTS"
+  },
+  {
+    "status": "entirely foreign",
+    "detail": "no TS structure anywhere at the start; content is foreign format",
+    "foreign_verdict": "foreign format",
+    "evidence": "JPEG x3; entropy 7.95",
+    "splice_offset": 0,
+    "bytes_foreign": 3102720,
+    "fraction_foreign": 1.0,
+    "path": "/Volumes/home-movies/2009/00021.MTS"
+  },
+  {
+    "status": "entirely foreign",
+    "detail": "no TS structure anywhere at the start; content is probable MP3 audio",
+    "foreign_verdict": "probable MP3 audio",
+    "evidence": "5753 frame syncs, entropy 7.97",
+    "splice_offset": 0,
+    "bytes_foreign": 9099264,
+    "fraction_foreign": 1.0,
+    "path": "/Volumes/home-movies/2009/00023.MTS"
+  },
+  {
+    "status": "spliced",
+    "detail": "continuous transport stream to 3,746,820 bytes (2.0%); 131.3 MB is not a transport stream at all (another transport stream, unidentified compressed data); 50.3 MB is transport-stream data on a different packet grid (donor blocks, or this recording resuming after a gap)",
+    "foreign_verdict": "unidentified compressed data",
+    "foreign_verdicts": [
+      "another transport stream",
+      "unidentified compressed data"
+    ],
+    "evidence": "host grid stride 192 phase 132; entropy 7.97 bits/byte",
+    "splice_offset": 3746820,
+    "regions": [
+      {
+        "state": "foreign",
+        "start": 3746820,
+        "end": 98566144,
+        "phase": null,
+        "verdict": "unidentified compressed data",
+        "evidence": "entropy 7.97 bits/byte",
+        "bytes": 94819324
+      },
+      {
+        "state": "shifted",
+        "start": 98566144,
+        "end": 148897792,
+        "phase": 4,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 4, sync 1.000",
+        "bytes": 50331648
+      },
+      {
+        "state": "foreign",
+        "start": 148897792,
+        "end": 185382912,
+        "phase": null,
+        "verdict": "unidentified compressed data",
+        "evidence": "entropy 7.98 bits/byte",
+        "bytes": 36485120
+      }
+    ],
+    "region_count": 3,
+    "bytes_foreign": 131304444,
+    "bytes_phase_shifted": 50331648,
+    "fraction_foreign": 0.7082877412131707,
+    "fraction_discontinuous": 0.9797887520506744,
+    "foreign_bytes_approximate": true,
+    "path": "/Volumes/home-movies/2009/00003.MTS"
+  },
+  {
+    "status": "entirely foreign",
+    "detail": "no TS structure anywhere at the start; content is foreign format",
+    "foreign_verdict": "foreign format",
+    "evidence": "JPEG x7, PNG x11; entropy 7.94",
+    "splice_offset": 0,
+    "bytes_foreign": 107120640,
+    "fraction_foreign": 1.0,
+    "path": "/Volumes/home-movies/2009/00026.MTS"
+  },
+  {
+    "status": "entirely foreign",
+    "detail": "no TS structure anywhere at the start; content is foreign format",
+    "foreign_verdict": "foreign format",
+    "evidence": "MP3 (LAME tag) x48, MP3 (ID3 tag) x1; entropy 7.96",
+    "splice_offset": 0,
+    "bytes_foreign": 77512704,
+    "fraction_foreign": 1.0,
+    "path": "/Volumes/home-movies/2009/00027.MTS"
+  },
+  {
+    "status": "spliced",
+    "detail": "continuous transport stream to 30,572,548 bytes (29.6%); 26.1 MB is not a transport stream at all (another transport stream, probable MP3 audio, unidentified compressed data); 16.2 MB is transport-stream data on a different packet grid (donor blocks, or this recording resuming after a gap)",
+    "foreign_verdict": "unidentified compressed data",
+    "foreign_verdicts": [
+      "another transport stream",
+      "probable MP3 audio",
+      "unidentified compressed data"
+    ],
+    "evidence": "host grid stride 192 phase 4; entropy 7.98 bits/byte",
+    "splice_offset": 30572548,
+    "regions": [
+      {
+        "state": "foreign",
+        "start": 30572548,
+        "end": 32505856,
+        "phase": null,
+        "verdict": "unidentified compressed data",
+        "evidence": "entropy 7.98 bits/byte",
+        "bytes": 1933308
+      },
+      {
+        "state": "foreign",
+        "start": 62914560,
+        "end": 67108864,
+        "phase": null,
+        "verdict": "unidentified compressed data",
+        "evidence": "entropy 7.84 bits/byte",
+        "bytes": 4194304
+      },
+      {
+        "state": "shifted",
+        "start": 67108864,
+        "end": 81788928,
+        "phase": 4,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 4, sync 1.000",
+        "bytes": 14680064
+      },
+      {
+        "state": "foreign",
+        "start": 81788928,
+        "end": 101711872,
+        "phase": null,
+        "verdict": "probable MP3 audio",
+        "evidence": "5729 frame syncs, entropy 7.87",
+        "bytes": 19922944
+      },
+      {
+        "state": "shifted",
+        "start": 101711872,
+        "end": 103225344,
+        "phase": 68,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 68, sync 1.000",
+        "bytes": 1513472
+      }
+    ],
+    "region_count": 5,
+    "bytes_foreign": 26050556,
+    "bytes_phase_shifted": 16193536,
+    "fraction_foreign": 0.2523658918491955,
+    "fraction_discontinuous": 0.40924147465180644,
+    "foreign_bytes_approximate": true,
+    "path": "/Volumes/home-movies/2009/00017.MTS"
+  },
+  {
+    "status": "entirely foreign",
+    "detail": "no TS structure anywhere at the start; content is probable MP3 audio",
+    "foreign_verdict": "probable MP3 audio",
+    "evidence": "7223 frame syncs, entropy 7.94",
+    "splice_offset": 0,
+    "bytes_foreign": 94715904,
+    "fraction_foreign": 1.0,
+    "path": "/Volumes/home-movies/2010/00033.MTS"
+  },
+  {
+    "status": "entirely foreign",
+    "detail": "no TS structure anywhere at the start; content is foreign format",
+    "foreign_verdict": "foreign format",
+    "evidence": "MP3 (LAME tag) x9697; entropy 7.26",
+    "splice_offset": 0,
+    "bytes_foreign": 16128000,
+    "fraction_foreign": 1.0,
+    "path": "/Volumes/home-movies/2010/00034.MTS"
+  },
+  {
+    "status": "entirely foreign",
+    "detail": "no TS structure anywhere at the start; content is probable MP3 audio",
+    "foreign_verdict": "probable MP3 audio",
+    "evidence": "6563 frame syncs, entropy 7.98",
+    "splice_offset": 0,
+    "bytes_foreign": 181985280,
+    "fraction_foreign": 1.0,
+    "path": "/Volumes/home-movies/2010/00037.MTS"
+  },
+  {
+    "status": "entirely foreign",
+    "detail": "no TS structure anywhere at the start; content is probable MP3 audio",
+    "foreign_verdict": "probable MP3 audio",
+    "evidence": "8147 frame syncs, entropy 7.99",
+    "splice_offset": 0,
+    "bytes_foreign": 80990208,
+    "fraction_foreign": 1.0,
+    "path": "/Volumes/home-movies/2010/00041.MTS"
+  },
+  {
+    "status": "spliced",
+    "detail": "continuous transport stream to 12,517,444 bytes (12.2%); 17.5 MB is not a transport stream at all (another transport stream, foreign format, probable MP3 audio, unidentified compressed data); 15.7 MB is transport-stream data on a different packet grid (donor blocks, or this recording resuming after a gap)",
+    "foreign_verdict": "unidentified compressed data",
+    "foreign_verdicts": [
+      "another transport stream",
+      "foreign format",
+      "probable MP3 audio",
+      "unidentified compressed data"
+    ],
+    "evidence": "host grid stride 192 phase 4; entropy 7.98 bits/byte",
+    "splice_offset": 12517444,
+    "regions": [
+      {
+        "state": "foreign",
+        "start": 12517444,
+        "end": 13631488,
+        "phase": null,
+        "verdict": "unidentified compressed data",
+        "evidence": "entropy 7.98 bits/byte",
+        "bytes": 1114044
+      },
+      {
+        "state": "foreign",
+        "start": 29360128,
+        "end": 30408704,
+        "phase": null,
+        "verdict": "unidentified compressed data",
+        "evidence": "entropy 7.98 bits/byte",
+        "bytes": 1048576
+      },
+      {
+        "state": "shifted",
+        "start": 71303168,
+        "end": 80740352,
+        "phase": 132,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 132, sync 1.000",
+        "bytes": 9437184
+      },
+      {
+        "state": "foreign",
+        "start": 80740352,
+        "end": 83886080,
+        "phase": null,
+        "verdict": "probable MP3 audio",
+        "evidence": "3208 frame syncs, entropy 7.99",
+        "bytes": 3145728
+      },
+      {
+        "state": "shifted",
+        "start": 83886080,
+        "end": 90177536,
+        "phase": 132,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 132, sync 1.000",
+        "bytes": 6291456
+      },
+      {
+        "state": "foreign",
+        "start": 90177536,
+        "end": 102322176,
+        "phase": null,
+        "verdict": "foreign format",
+        "evidence": "MP3 (LAME tag) x6, MP3 (ID3 tag) x1, MP3 (Xing header) x1; entropy 7.92",
+        "bytes": 12144640
+      }
+    ],
+    "region_count": 6,
+    "bytes_foreign": 17452988,
+    "bytes_phase_shifted": 15728640,
+    "fraction_foreign": 0.17056896835344862,
+    "fraction_discontinuous": 0.3242857931402866,
+    "foreign_bytes_approximate": true,
+    "path": "/Volumes/home-movies/2010/00039.MTS"
+  },
+  {
+    "status": "spliced",
+    "detail": "continuous transport stream to 4,345,860 bytes (4.7%); 88.9 MB is transport-stream data on a different packet grid (donor blocks, or this recording resuming after a gap)",
+    "foreign_verdict": "another transport stream",
+    "foreign_verdicts": [
+      "another transport stream"
+    ],
+    "evidence": "host grid stride 192 phase 132; TS grid at stride 192 phase 64, sync 1.000",
+    "splice_offset": 4345860,
+    "regions": [
+      {
+        "state": "shifted",
+        "start": 4345860,
+        "end": 93278208,
+        "phase": 68,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 64, sync 1.000",
+        "bytes": 88932348
+      }
+    ],
+    "region_count": 1,
+    "bytes_foreign": 0,
+    "bytes_phase_shifted": 88932348,
+    "fraction_foreign": 0.0,
+    "fraction_discontinuous": 0.9534096967214465,
+    "foreign_bytes_approximate": true,
+    "path": "/Volumes/home-movies/2010/00042.MTS"
+  },
+  {
+    "status": "entirely foreign",
+    "detail": "no TS structure anywhere at the start; content is unidentified compressed data",
+    "foreign_verdict": "unidentified compressed data",
+    "evidence": "entropy 7.98 bits/byte",
+    "splice_offset": 0,
+    "bytes_foreign": 14118912,
+    "fraction_foreign": 1.0,
+    "path": "/Volumes/home-movies/2010/00045.MTS"
+  },
+  {
+    "status": "entirely foreign",
+    "detail": "no TS structure anywhere at the start; content is unidentified compressed data",
+    "foreign_verdict": "unidentified compressed data",
+    "evidence": "entropy 7.98 bits/byte",
+    "splice_offset": 0,
+    "bytes_foreign": 138792960,
+    "fraction_foreign": 1.0,
+    "path": "/Volumes/home-movies/2010/00050.MTS"
+  },
+  {
+    "status": "entirely foreign",
+    "detail": "no TS structure anywhere at the start; content is foreign format",
+    "foreign_verdict": "foreign format",
+    "evidence": "MP3 (ID3 tag) x1; entropy 7.89",
+    "splice_offset": 0,
+    "bytes_foreign": 142577664,
+    "fraction_foreign": 1.0,
+    "path": "/Volumes/home-movies/2010/00057.MTS"
+  },
+  {
+    "status": "entirely foreign",
+    "detail": "no TS structure anywhere at the start; content is foreign format",
+    "foreign_verdict": "foreign format",
+    "evidence": "MP3 (LAME tag) x11; entropy 7.68",
+    "splice_offset": 0,
+    "bytes_foreign": 174594048,
+    "fraction_foreign": 1.0,
+    "path": "/Volumes/home-movies/2010/00066.MTS"
+  },
+  {
+    "status": "spliced",
+    "detail": "continuous transport stream to 49,115,140 bytes (71.1%); 5.1 MB is not a transport stream at all (another transport stream, probable MP3 audio); 14.8 MB is transport-stream data on a different packet grid (donor blocks, or this recording resuming after a gap)",
+    "foreign_verdict": "another transport stream",
+    "foreign_verdicts": [
+      "another transport stream",
+      "probable MP3 audio"
+    ],
+    "evidence": "host grid stride 192 phase 4; TS grid at stride 192 phase 64, sync 1.000",
+    "splice_offset": 49115140,
+    "regions": [
+      {
+        "state": "shifted",
+        "start": 49115140,
+        "end": 63963136,
+        "phase": 132,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 64, sync 1.000",
+        "bytes": 14847996
+      },
+      {
+        "state": "foreign",
+        "start": 63963136,
+        "end": 69101568,
+        "phase": null,
+        "verdict": "probable MP3 audio",
+        "evidence": "6039 frame syncs, entropy 7.42",
+        "bytes": 5138432
+      }
+    ],
+    "region_count": 2,
+    "bytes_foreign": 5138432,
+    "bytes_phase_shifted": 14847996,
+    "fraction_foreign": 0.07436057022613438,
+    "fraction_discontinuous": 0.2892326263855547,
+    "foreign_bytes_approximate": true,
+    "path": "/Volumes/home-movies/2010/00065.MTS"
+  },
+  {
+    "status": "spliced",
+    "detail": "continuous transport stream to 84,193,412 bytes (15.2%); 367.7 MB is not a transport stream at all (another transport stream, foreign format, probable MP3 audio, unidentified compressed data); 54.2 MB is transport-stream data on a different packet grid (donor blocks, or this recording resuming after a gap)",
+    "foreign_verdict": "unidentified compressed data",
+    "foreign_verdicts": [
+      "another transport stream",
+      "foreign format",
+      "probable MP3 audio",
+      "unidentified compressed data"
+    ],
+    "evidence": "host grid stride 192 phase 68; entropy 7.95 bits/byte",
+    "splice_offset": 84193412,
+    "regions": [
+      {
+        "state": "foreign",
+        "start": 84193412,
+        "end": 87031808,
+        "phase": null,
+        "verdict": "unidentified compressed data",
+        "evidence": "entropy 7.95 bits/byte",
+        "bytes": 2838396
+      },
+      {
+        "state": "shifted",
+        "start": 87031808,
+        "end": 101711872,
+        "phase": 4,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 4, sync 1.000",
+        "bytes": 14680064
+      },
+      {
+        "state": "foreign",
+        "start": 101711872,
+        "end": 131072000,
+        "phase": null,
+        "verdict": "foreign format",
+        "evidence": "MP3 (LAME tag) x1; entropy 7.98",
+        "bytes": 29360128
+      },
+      {
+        "state": "shifted",
+        "start": 131072000,
+        "end": 134217728,
+        "phase": 4,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 4, sync 1.000; also MP3 (LAME tag) x2, MP3 (ID3 tag) x2, MP3 (Xing header) x2",
+        "bytes": 3145728
+      },
+      {
+        "state": "foreign",
+        "start": 134217728,
+        "end": 173015040,
+        "phase": null,
+        "verdict": "foreign format",
+        "evidence": "MP3 (LAME tag) x2, MP3 (ID3 tag) x2, MP3 (Xing header) x2; entropy 7.97",
+        "bytes": 38797312
+      },
+      {
+        "state": "foreign",
+        "start": 185597952,
+        "end": 270532608,
+        "phase": null,
+        "verdict": "probable MP3 audio",
+        "evidence": "5871 frame syncs, entropy 7.98",
+        "bytes": 84934656
+      },
+      {
+        "state": "foreign",
+        "start": 287309824,
+        "end": 320864256,
+        "phase": null,
+        "verdict": "probable MP3 audio",
+        "evidence": "3353 frame syncs, entropy 7.98",
+        "bytes": 33554432
+      },
+      {
+        "state": "foreign",
+        "start": 337641472,
+        "end": 490733568,
+        "phase": null,
+        "verdict": "probable MP3 audio",
+        "evidence": "8792 frame syncs, entropy 7.93",
+        "bytes": 153092096
+      },
+      {
+        "state": "shifted",
+        "start": 490733568,
+        "end": 505413632,
+        "phase": 4,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 4, sync 1.000",
+        "bytes": 14680064
+      },
+      {
+        "state": "foreign",
+        "start": 505413632,
+        "end": 509607936,
+        "phase": null,
+        "verdict": "probable MP3 audio",
+        "evidence": "5548 frame syncs, entropy 7.98",
+        "bytes": 4194304
+      },
+      {
+        "state": "shifted",
+        "start": 509607936,
+        "end": 517996544,
+        "phase": 4,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 4, sync 1.000",
+        "bytes": 8388608
+      },
+      {
+        "state": "foreign",
+        "start": 517996544,
+        "end": 538968064,
+        "phase": null,
+        "verdict": "foreign format",
+        "evidence": "MP3 (ID3 tag) x1; entropy 7.96",
+        "bytes": 20971520
+      },
+      {
+        "state": "shifted",
+        "start": 538968064,
+        "end": 552278016,
+        "phase": 68,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 68, sync 1.000",
+        "bytes": 13309952
+      }
+    ],
+    "region_count": 13,
+    "bytes_foreign": 367742844,
+    "bytes_phase_shifted": 54204416,
+    "fraction_foreign": 0.6658654397715515,
+    "fraction_discontinuous": 0.7640124136319053,
+    "foreign_bytes_approximate": true,
+    "path": "/Volumes/home-movies/2009/00030.MTS"
+  },
+  {
+    "status": "spliced",
+    "detail": "continuous transport stream to 1,052,740 bytes (0.5%); 99.6 MB is not a transport stream at all (another transport stream, foreign format, probable MP3 audio, unidentified compressed data); 35.7 MB is transport-stream data on a different packet grid (donor blocks, or this recording resuming after a gap)",
+    "foreign_verdict": "unidentified compressed data",
+    "foreign_verdicts": [
+      "another transport stream",
+      "foreign format",
+      "probable MP3 audio",
+      "unidentified compressed data"
+    ],
+    "evidence": "host grid stride 192 phase 4; entropy 7.98 bits/byte",
+    "splice_offset": 1052740,
+    "regions": [
+      {
+        "state": "foreign",
+        "start": 1052740,
+        "end": 2097152,
+        "phase": null,
+        "verdict": "unidentified compressed data",
+        "evidence": "entropy 7.98 bits/byte",
+        "bytes": 1044412
+      },
+      {
+        "state": "shifted",
+        "start": 70254592,
+        "end": 102760448,
+        "phase": 4,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 4, sync 1.000",
+        "bytes": 32505856
+      },
+      {
+        "state": "foreign",
+        "start": 102760448,
+        "end": 176160768,
+        "phase": null,
+        "verdict": "probable MP3 audio",
+        "evidence": "8398 frame syncs, entropy 7.98",
+        "bytes": 73400320
+      },
+      {
+        "state": "shifted",
+        "start": 176160768,
+        "end": 178257920,
+        "phase": 132,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 132, sync 1.000; also MP3 (ID3 tag) x2",
+        "bytes": 2097152
+      },
+      {
+        "state": "foreign",
+        "start": 178257920,
+        "end": 203423744,
+        "phase": null,
+        "verdict": "foreign format",
+        "evidence": "MP3 (ID3 tag) x1; entropy 7.96",
+        "bytes": 25165824
+      },
+      {
+        "state": "shifted",
+        "start": 203423744,
+        "end": 204472320,
+        "phase": 132,
+        "verdict": "another transport stream",
+        "evidence": "TS grid at stride 192 phase 132, sync 1.000",
+        "bytes": 1048576
+      }
+    ],
+    "region_count": 6,
+    "bytes_foreign": 99610556,
+    "bytes_phase_shifted": 35651584,
+    "fraction_foreign": 0.47402653642939985,
+    "fraction_discontinuous": 0.6436852308527279,
+    "foreign_bytes_approximate": true,
+    "path": "/Volumes/home-movies/2010/00071.MTS"
+  },
+  {
+    "status": "spliced",
+    "detail": "continuous transport stream to 80,973,892 bytes (32.0%); 8.2 MB is not a transport stream at all (probable MP3 audio, unidentified compressed data)",
+    "foreign_verdict": "unidentified compressed data",
+    "foreign_verdicts": [
+      "probable MP3 audio",
+      "unidentified compressed data"
+    ],
+    "evidence": "host grid stride 192 phase 4; entropy 7.86 bits/byte",
+    "splice_offset": 80973892,
+    "regions": [
+      {
+        "state": "foreign",
+        "start": 80973892,
+        "end": 84934656,
+        "phase": null,
+        "verdict": "unidentified compressed data",
+        "evidence": "entropy 7.86 bits/byte",
+        "bytes": 3960764
+      },
+      {
+        "state": "foreign",
+        "start": 150994944,
+        "end": 155189248,
+        "phase": null,
+        "verdict": "probable MP3 audio",
+        "evidence": "10297 frame syncs, entropy 7.45",
+        "bytes": 4194304
+      }
+    ],
+    "region_count": 2,
+    "bytes_foreign": 8155068,
+    "bytes_phase_shifted": 0,
+    "fraction_foreign": 0.032210305417030675,
+    "fraction_discontinuous": 0.032210305417030675,
+    "foreign_bytes_approximate": true,
+    "path": "/Volumes/home-movies/2011 Summer Vacation/New-after reset/00024.MTS"
+  },
+  {
+    "status": "spliced",
+    "detail": "continuous transport stream to 32,867,524 bytes (35.7%); 3.8 MB is not a transport stream at all (probable MP3 audio)",
+    "foreign_verdict": "probable MP3 audio",
+    "foreign_verdicts": [
+      "probable MP3 audio"
+    ],
+    "evidence": "host grid stride 192 phase 4; 8583 frame syncs, entropy 7.97",
+    "splice_offset": 32867524,
+    "regions": [
+      {
+        "state": "foreign",
+        "start": 32867524,
+        "end": 36700160,
+        "phase": null,
+        "verdict": "probable MP3 audio",
+        "evidence": "8583 frame syncs, entropy 7.97",
+        "bytes": 3832636
+      }
+    ],
+    "region_count": 1,
+    "bytes_foreign": 3832636,
+    "bytes_phase_shifted": 0,
+    "fraction_foreign": 0.0415756753060295,
+    "fraction_discontinuous": 0.0415756753060295,
+    "foreign_bytes_approximate": true,
+    "path": "/Volumes/home-movies/2011 Summer Vacation/New-after reset/00043.MTS"
+  },
+  {
+    "status": "empty",
+    "detail": "0 bytes",
+    "path": "/Volumes/home-movies/2014/00123.MTS"
+  },
+  {
+    "status": "empty",
+    "detail": "0 bytes",
+    "path": "/Volumes/home-movies/2014/00124.MTS"
+  },
+  {
+    "status": "empty",
+    "detail": "0 bytes",
+    "path": "/Volumes/home-movies/2014/00125.MTS"
+  },
+  {
+    "status": "empty",
+    "detail": "0 bytes",
+    "path": "/Volumes/home-movies/2014/00126.MTS"
+  },
+  {
+    "status": "empty",
+    "detail": "0 bytes",
+    "path": "/Volumes/home-movies/2014/00127.MTS"
+  },
+  {
+    "status": "empty",
+    "detail": "0 bytes",
+    "path": "/Volumes/home-movies/2014/00128.MTS"
+  },
+  {
+    "status": "empty",
+    "detail": "0 bytes",
+    "path": "/Volumes/home-movies/2014/00129.MTS"
+  },
+  {
+    "status": "empty",
+    "detail": "0 bytes",
+    "path": "/Volumes/home-movies/2014/00130.MTS"
+  },
+  {
+    "status": "empty",
+    "detail": "0 bytes",
+    "path": "/Volumes/home-movies/2014/00131.MTS"
+  },
+  {
+    "status": "empty",
+    "detail": "0 bytes",
+    "path": "/Volumes/home-movies/2014/00132.MTS"
+  },
+  {
+    "status": "empty",
+    "detail": "0 bytes",
+    "path": "/Volumes/home-movies/2014/00133.MTS"
+  }
+]

@@ -4,6 +4,7 @@ Thumbs.db
 Organized_Photos/
 Organized_Videos/
 TO_PROCESS/
+_RESCUED/
 
 # Temporary ad-hoc analysis scripts and their output logs
 .TMP_*

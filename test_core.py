@@ -37,6 +37,7 @@ import json
 import os
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import time
@@ -52,13 +53,18 @@ SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import camcorder_convert
+import attribute_splices
 import check_media_health
 import check_nas_archive
 import create_event_folders
+import detect_splices
 import duplicate_detector
 import organize_archive
+import preflight_import
 import reconcile_nikon_archive
 import removal_history
+import verify_conversions
+import rescue_damaged_media
 from analyze_photo_quality import ImageAnalysisCache, get_analysis_cache
 
 
@@ -2411,6 +2417,166 @@ class TestMediaHealthChecks(unittest.TestCase):
 
         self.assertEqual(status, 'ok')
 
+    def test_audio_only_file_with_a_video_extension_is_flagged(self):
+        """
+        The blind spot that let eight files pass as healthy home movies. 2010/00033.MTS
+        holds 94 MB of MP3 audio, and ffprobe calls it a valid 2,959-second mp3 stream
+        — so "does this decode" answers yes. The footage is not damaged, it is absent,
+        and no transcode recovers it.
+        """
+        source = self.temp_dir / "audio.mp3"
+        target = self.temp_dir / "fake.MTS"
+
+        made = subprocess.run(
+            ['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono',
+             '-t', '1', '-c:a', 'libmp3lame', '-y', str(source)],
+            capture_output=True, check=False
+        )
+
+        if made.returncode != 0 or not source.exists():
+            self.skipTest("ffmpeg cannot produce an mp3 here")
+
+        shutil.copy(source, target)
+
+        status, detail = check_media_health.check_video(target)
+
+        self.assertEqual(status, 'not a video')
+        self.assertIn('no video stream', detail)
+
+    def test_container_disagreeing_with_extension_is_flagged(self):
+        """
+        2010/00045.MTS is an m4v. The container is intact, so every damage check passes,
+        but the file is not the recording its name claims.
+        """
+        source = self.temp_dir / "clip.mp4"
+        target = self.temp_dir / "fake2.MTS"
+
+        made = subprocess.run(
+            ['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=32x32:d=1',
+             '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-y', str(source)],
+            capture_output=True, check=False
+        )
+
+        if made.returncode != 0 or not source.exists():
+            self.skipTest("ffmpeg cannot produce an mp4 here")
+
+        shutil.copy(source, target)
+
+        status, detail = check_media_health.check_video(target)
+
+        self.assertEqual(status, 'wrong container')
+        self.assertIn('expected mpegts', detail)
+
+    def test_matching_container_still_passes(self):
+        """Guard against the extension check rejecting healthy files wholesale."""
+        source = self.temp_dir / "good.mp4"
+
+        made = subprocess.run(
+            ['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=32x32:d=1',
+             '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-y', str(source)],
+            capture_output=True, check=False
+        )
+
+        if made.returncode != 0 or not source.exists():
+            self.skipTest("ffmpeg not available")
+
+        status, _ = check_media_health.check_video(source)
+
+        self.assertEqual(status, 'ok')
+
+    def test_deep_video_check_is_opt_in(self):
+        """
+        The container probe stays the default because a full decode is expensive, but
+        it cannot see mid-stream damage. Five AVCHD files passed the fast check with
+        clean durations while carrying 46-244 decode errors, then lost footage when
+        transcoded — one dropped 72 of its 103 seconds.
+        """
+        self.assertTrue(hasattr(check_media_health, 'check_video_deep'))
+
+        # check_file must not decode deeply unless asked
+        import inspect
+
+        signature = inspect.signature(check_media_health.check_file)
+        self.assertIn('deep', signature.parameters)
+        self.assertFalse(signature.parameters['deep'].default)
+
+    def test_deep_check_sees_damage_the_fast_check_misses(self):
+        """
+        The whole point of the deep check, demonstrated on a real corrupted stream.
+
+        A file with mid-stream damage still reports a clean duration, so the container
+        probe calls it fine. Only decoding reveals the problem — which matters because
+        transcoding such a file loses footage silently.
+        """
+        import shutil as shutil_module
+        import subprocess
+
+        if shutil_module.which('ffmpeg') is None:
+            self.skipTest("ffmpeg required")
+
+        clip = self.temp_dir / "clip.mp4"
+        subprocess.run(
+            ['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc=duration=3:size=320x240:rate=30',
+             '-c:v', 'libx264', '-y', str(clip)],
+            check=True, capture_output=True, timeout=120
+        )
+
+        healthy_fast = check_media_health.check_video(clip)
+        healthy_deep = check_media_health.check_video_deep(clip)
+        self.assertEqual(healthy_fast[0], 'ok')
+        self.assertEqual(healthy_deep[0], 'ok', "an intact clip must pass both checks")
+
+        # Corrupt a run of bytes well inside the stream, past the header
+        payload = bytearray(clip.read_bytes())
+        start = len(payload) // 2
+        payload[start:start + 600] = b'\x00' * 600
+        damaged = self.temp_dir / "damaged.mp4"
+        damaged.write_bytes(bytes(payload))
+
+        fast = check_media_health.check_video(damaged)
+        deep = check_media_health.check_video_deep(damaged)
+
+        self.assertNotEqual(
+            deep[0], 'ok',
+            f"deep check must notice mid-stream damage (got {deep})"
+        )
+        self.assertEqual(
+            fast[0], 'ok',
+            "documents the gap: the container probe still calls this file fine"
+        )
+
+    def test_muxer_noise_is_not_counted_as_damage(self):
+        """
+        Decoding to `-f null -` still runs an output muxer, and that muxer complains
+        about timestamps it dislikes. Those complaints describe the command, not the
+        file.
+
+        This is not hypothetical tuning: a first pass over the archive flagged 325
+        files and 323 of them were this single warning. A checker that calls 11.5% of
+        a healthy archive damaged only teaches you to ignore it.
+        """
+        noise = [
+            '[null @ 0x98ec1f700] Application provided invalid, non monotonic DTS',
+            'Application provided invalid, non monotonic DTS to muxer in stream 0',
+        ]
+        real = [
+            '[h264 @ 0xa46c49c00] error while decoding MB 50 66, bytestream 24721',
+            '[mjpeg @ 0xab8c84e00] overread 8',
+            '[aac @ 0x982cace00] channel element 0.0 duplicate',
+            '[h264 @ 0xc7ac48e00] missing picture in access unit with size 6412',
+        ]
+
+        for line in noise:
+            with self.subTest(line=line[:40]):
+                self.assertTrue(check_media_health._is_muxer_noise(line))
+
+        for line in real:
+            with self.subTest(line=line[:40]):
+                self.assertFalse(
+                    check_media_health._is_muxer_noise(line),
+                    "a decoder-reported error must still count"
+                )
+
     def test_truncation_tolerance_stays_disabled(self):
         """
         PIL's LOAD_TRUNCATED_IMAGES must remain off. Turning it on anywhere in the
@@ -2673,6 +2839,890 @@ class TestReconcilerVideoAwareness(unittest.TestCase):
         )
 
         self.assertTrue(str(destination).startswith(str(self.photos)))
+
+
+# ============================================================================
+# SECTION 17: Foreign Content Splice Detection
+# ============================================================================
+
+class TestTransportStreamSplices(unittest.TestCase):
+    """
+    Synthetic transport streams, because the real damaged files are on a share that
+    may not be mounted and are far too large to commit.
+
+    A valid AVCHD packet here is a 4-byte TP_extra_header followed by 0x47 and 187
+    payload bytes, which is all the structure the detector actually relies on.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.mkdtemp()
+        self.root = Path(self.temp)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp, ignore_errors=True)
+
+    def make_ts(self, packets, phase_shift=0):
+        """Build `packets` worth of valid BDAV transport stream bytes."""
+        data = bytearray(b'\x00' * phase_shift)
+
+        for index in range(packets):
+            data += b'\x00\x00\x00\x00'
+            data += bytes([detect_splices.SYNC_BYTE])
+            # Payload deliberately avoids 0x47 so phase detection is unambiguous
+            data += bytes([(index * 7 + offset) % 0x46 for offset in range(187)])
+
+        return bytes(data)
+
+    def make_mp3_like(self, length):
+        """Bytes carrying MP3 framing and a LAME tag, as a donor file's blocks would."""
+        block = bytearray()
+
+        while len(block) < length:
+            block += b'\xff\xfb\x90\x64'
+            block += bytes([(len(block) + step) % 251 for step in range(413)])
+
+        data = bytearray(block[:length])
+        data[5000:5008] = b'LAME3.99'
+        return bytes(data)
+
+    def write(self, name, payload):
+        """Write a file and return its path."""
+        path = self.root / name
+        path.write_bytes(payload)
+        return path
+
+    def test_clean_transport_stream_produces_no_finding(self):
+        """A continuous stream must not be flagged, or the tool is useless at scale."""
+        path = self.write('clean.MTS', self.make_ts(9000))
+
+        self.assertIsNone(detect_splices.analyze_file(path))
+
+    def test_foreign_tail_is_detected_and_located(self):
+        """Video followed by foreign data is the core case."""
+        video = self.make_ts(9000)
+        path = self.write('spliced.MTS', video + self.make_mp3_like(6 << 20))
+
+        finding = detect_splices.analyze_file(path)
+
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding['status'], 'spliced')
+        # The splice is located within one window of the true boundary
+        self.assertLess(abs(finding['splice_offset'] - len(video)),
+                        detect_splices.WINDOW_BYTES)
+
+    def test_entirely_foreign_file_reports_total_loss(self):
+        """
+        An .MTS holding only MP3 data is the finding ffprobe cannot give us: it reports
+        such a file as a healthy audio stream, which is why the health check passed it.
+        """
+        path = self.write('allmp3.MTS', self.make_mp3_like(8 << 20))
+
+        finding = detect_splices.analyze_file(path)
+
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding['status'], 'entirely foreign')
+        self.assertEqual(finding['fraction_foreign'], 1.0)
+
+    def test_foreign_transport_stream_identified_by_phase(self):
+        """
+        Blocks from another .MTS still hold sync, just at a different phase. Detecting
+        that is what distinguishes a donor video from unstructured corruption.
+        """
+        host = self.make_ts(9000)
+        donor = self.make_ts(40000, phase_shift=60)
+        path = self.write('donor.MTS', host + donor)
+
+        finding = detect_splices.analyze_file(path)
+
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding['foreign_verdict'], 'another transport stream')
+
+    def test_resumed_video_is_not_counted_as_definitely_lost(self):
+        """
+        Video resuming after a foreign region lands on a different packet grid, because
+        the resumed data has no reason to fall back onto the original phase. Counting
+        that as destroyed reported a 35%-recoverable file as 99.5% lost.
+
+        So `bytes_foreign` must cover only data with no transport-stream structure at
+        any phase, leaving phase-shifted video in its own ambiguous bucket.
+        """
+        good = self.make_ts(9000)
+        path = self.write(
+            'multi.MTS',
+            good + self.make_mp3_like(4 << 20) + good + self.make_mp3_like(4 << 20)
+        )
+
+        finding = detect_splices.analyze_file(path)
+        size = path.stat().st_size
+
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding['status'], 'spliced')
+        # The two MP3 blocks are 8 MB of an ~11.8 MB file; the confident number must
+        # stay close to that rather than swallowing the whole remainder.
+        self.assertLess(finding['bytes_foreign'], 0.80 * size)
+        self.assertGreater(finding['bytes_foreign'], 0.50 * size)
+
+    def test_phase_shifted_video_is_reported_separately(self):
+        """
+        Donor transport-stream blocks and a resumed recording are indistinguishable by
+        phase, so they share a bucket that is deliberately kept out of the loss figure.
+        """
+        host = self.make_ts(9000)
+        donor = self.make_ts(40000, phase_shift=60)
+        path = self.write('donor.MTS', host + donor)
+
+        finding = detect_splices.analyze_file(path)
+
+        self.assertIsNotNone(finding)
+        self.assertGreater(finding['bytes_phase_shifted'], 0)
+        self.assertEqual(finding['bytes_foreign'], 0)
+
+    def test_single_corrupt_packet_is_not_called_a_splice(self):
+        """
+        Ordinary damage must not masquerade as foreign content, because the two lead to
+        opposite decisions: transcode-and-salvage versus the footage is gone.
+        """
+        data = bytearray(self.make_ts(9000))
+        # Break a handful of scattered sync bytes
+        for packet in (100, 400, 900, 1500):
+            data[packet * 192 + 4] = 0x00
+
+        path = self.write('glitch.MTS', bytes(data))
+
+        self.assertIsNone(detect_splices.analyze_file(path))
+
+
+class TestJpegLogicalEnd(unittest.TestCase):
+    """
+    Trailing-data detection for photos, where the false-positive risk is highest: motion
+    photos and MPO pairs append a legitimate second payload by design.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.mkdtemp()
+        self.root = Path(self.temp)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp, ignore_errors=True)
+
+    def make_jpeg(self):
+        """A minimal but structurally valid JPEG with a real scan segment."""
+        parts = [
+            b'\xff\xd8',                                  # SOI
+            b'\xff\xe0' + (16).to_bytes(2, 'big') + b'JFIF\x00' + b'\x00' * 9,
+            b'\xff\xdb' + (67).to_bytes(2, 'big') + b'\x00' + bytes(range(64)),
+            b'\xff\xda' + (8).to_bytes(2, 'big') + b'\x01\x01\x00\x00\x00\x00',
+            # Entropy-coded data including a stuffed 0xFF00 and a restart marker
+            b'\x12\x34\xff\x00\x56\xff\xd0\x78\x9a',
+            b'\xff\xd9',                                  # EOI
+        ]
+        return b''.join(parts)
+
+    def write(self, name, payload):
+        path = self.root / name
+        path.write_bytes(payload)
+        return path
+
+    def test_logical_end_walks_past_stuffed_bytes(self):
+        """A naive search for 0xFFD9 finds compressed data by chance; the walk must not."""
+        image = self.make_jpeg()
+
+        self.assertEqual(detect_splices.jpeg_logical_end(image), len(image))
+
+    def test_fill_bytes_before_a_restart_marker_do_not_derail_the_walk(self):
+        """
+        A run of 0xFF is legal padding before a marker, not a marker itself. Treating it
+        as one derailed the walk on every JPEG using restart intervals: four archived
+        scans reported "no end marker" despite decoding perfectly and ending in 0xFFD9,
+        and one file invented 307 KB of "trailing data" from its own image data.
+        """
+        parts = [
+            b'\xff\xd8',
+            b'\xff\xdd' + (4).to_bytes(2, 'big') + b'\x00\x10',   # DRI
+            b'\xff\xda' + (8).to_bytes(2, 'big') + b'\x01\x01\x00\x00\x00\x00',
+            b'\x12\x34',
+            b'\xff\xff\xff\xd0',                                  # fill bytes, then RST0
+            b'\x56\x78',
+            b'\xff\x00\x9a',                                      # stuffed literal
+            b'\xff\xd9',
+        ]
+        image = b''.join(parts)
+
+        self.assertEqual(detect_splices.jpeg_logical_end(image), len(image))
+
+    def test_samsung_trailer_is_not_flagged(self):
+        """
+        Samsung Extended Format appears on 2,036 archived photos. Flagging it made the
+        report 2,040 findings long with nothing real in it.
+        """
+        trailer = (b'\x00\x00\x01\x0a\x0e\x00\x00\x00Image_UTC_Data1658328390848'
+                   b'SEFH' + b'\x00' * 200)
+        path = self.write('galaxy.jpg', self.make_jpeg() + trailer)
+
+        self.assertIsNone(detect_splices.analyze_file(path))
+
+    def test_motorola_camera_trailer_is_not_flagged(self):
+        """
+        The single largest false-positive source: 1,914 archived photos carry a
+        Motorola camera-settings block after End-of-Image. Together with the Samsung
+        trailer this covered 3,950 of the 3,959 original findings.
+        """
+        trailer = (b'<camera>appversion=8.18.8.0_230518,cameraid=3,'
+                   b'modeid=AUTO_CAPTURE_MODE,flashoption=FLASH_OFF</camera>')
+        path = self.write('moto.jpg', self.make_jpeg() + trailer + b'\x00' * 100)
+
+        self.assertIsNone(detect_splices.analyze_file(path))
+
+    def test_tiny_foreign_buffer_is_not_called_a_transport_stream(self):
+        """
+        Over a buffer shorter than a few dozen packets, one chance 0x47 scores a perfect
+        sync ratio. That produced 20 confident donor-video verdicts on metadata scraps.
+        """
+        verdict, _ = detect_splices.classify_foreign(b'\x47' + b'\x00' * 97)
+
+        self.assertNotEqual(verdict, 'another transport stream')
+
+    def test_clean_jpeg_has_no_finding(self):
+        """Baseline, so trailing-data findings mean something."""
+        path = self.write('clean.jpg', self.make_jpeg())
+
+        self.assertIsNone(detect_splices.analyze_file(path))
+
+    def test_unexplained_trailing_data_is_flagged(self):
+        """Foreign bytes appended past End-of-Image are the photo-side symptom."""
+        path = self.write('tail.jpg', self.make_jpeg() + b'\xab\xcd' * 40000)
+
+        finding = detect_splices.analyze_file(path)
+
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding['status'], 'trailing data')
+
+    def test_motion_photo_trailer_is_not_flagged(self):
+        """
+        Google and Samsung phones append an MP4 after the JPEG on purpose. Flagging
+        these would bury real findings under thousands of healthy files.
+        """
+        trailer = b'\x00\x00\x00\x18ftypmp42' + b'\x00' * 60000
+        path = self.write('motion.jpg', self.make_jpeg() + trailer)
+
+        self.assertIsNone(detect_splices.analyze_file(path))
+
+    def test_mpo_second_image_is_not_flagged(self):
+        """An appended second JPEG is a stereo pair, not corruption."""
+        path = self.write('pair.jpg', self.make_jpeg() + self.make_jpeg() + b'\x00' * 40000)
+
+        self.assertIsNone(detect_splices.analyze_file(path))
+
+
+class TestIsobmffBoxWalk(unittest.TestCase):
+    """
+    Box-chain verification for the archive's own MP4 outputs, which is how a splice
+    would show up in a file this pipeline produced.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.mkdtemp()
+        self.root = Path(self.temp)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp, ignore_errors=True)
+
+    def box(self, kind, payload):
+        """Assemble one ISOBMFF box."""
+        return (len(payload) + 8).to_bytes(4, 'big') + kind + payload
+
+    def write(self, name, payload):
+        path = self.root / name
+        path.write_bytes(payload)
+        return path
+
+    def test_valid_box_chain_passes(self):
+        """A well-formed chain must produce no finding."""
+        data = self.box(b'ftyp', b'mp42' + b'\x00' * 8) + self.box(b'moov', b'\x00' * 512)
+        path = self.write('good.mp4', data + self.box(b'mdat', b'\x00' * 4096))
+
+        self.assertIsNone(detect_splices.analyze_file(path))
+
+    def test_broken_chain_is_flagged(self):
+        """Foreign bytes where a box header belongs break the chain unambiguously."""
+        data = self.box(b'ftyp', b'mp42' + b'\x00' * 8)
+        path = self.write('bad.mp4', data + b'\xff\xfe\xfd\xfc' * 20000)
+
+        finding = detect_splices.analyze_file(path)
+
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding['status'], 'spliced')
+
+    def test_box_running_past_end_of_file_reports_truncation(self):
+        """
+        Truncation is a different verdict from splicing, and conflating them would send
+        a recoverable file to the wrong pile.
+        """
+        header = (1 << 20).to_bytes(4, 'big') + b'mdat'
+        path = self.write('short.mp4', self.box(b'ftyp', b'mp42\x00\x00\x00\x00')
+                          + header + b'\x00' * 256)
+
+        finding = detect_splices.analyze_file(path)
+
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding['status'], 'truncated')
+
+    def test_zero_size_terminator_box_is_accepted(self):
+        """Size 0 legitimately means 'extends to end of file'."""
+        trailing = (0).to_bytes(4, 'big') + b'mdat' + b'\x00' * 8192
+        path = self.write('term.mp4', self.box(b'ftyp', b'mp42\x00\x00\x00\x00') + trailing)
+
+        self.assertIsNone(detect_splices.analyze_file(path))
+
+
+# ============================================================================
+# SECTION 18: Damaged-Media Rescue
+# ============================================================================
+
+class TestRescueClassification(unittest.TestCase):
+    """
+    The mapping step that decides what a damaged file actually holds.
+
+    Context: the originating SD cards are gone, so these sources are the only surviving
+    copy and a wrong classification silently discards the last version of something.
+    Two files ffprobe called completely unreadable turned out to hold transport-stream
+    video and carveable JPEGs respectively.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.mkdtemp()
+        self.root = Path(self.temp)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp, ignore_errors=True)
+
+    def make_ts(self, packets, phase_shift=0):
+        """Valid BDAV transport-stream bytes."""
+        data = bytearray(b'\x00' * phase_shift)
+
+        for index in range(packets):
+            data += b'\x00\x00\x00\x00'
+            data += bytes([rescue_damaged_media.SYNC_BYTE])
+            data += bytes([(index * 7 + offset) % 0x46 for offset in range(187)])
+
+        return bytes(data)
+
+    def test_transport_stream_is_recognised(self):
+        chunk = self.make_ts(600)
+
+        self.assertEqual(rescue_damaged_media.classify_window(chunk), 'ts')
+
+    def test_transport_stream_recognised_at_any_phase(self):
+        """
+        Carved regions never begin on the donor's packet boundary, so a phase-locked
+        check would classify real recoverable video as unknown and throw it away.
+        """
+        chunk = self.make_ts(600, phase_shift=77)
+
+        self.assertEqual(rescue_damaged_media.classify_window(chunk), 'ts')
+
+    def test_mp3_region_is_recognised(self):
+        block = bytearray()
+
+        while len(block) < (1 << 18):
+            block += b'\xff\xfb\x90\x64'
+            block += bytes([(len(block) + step) % 251 for step in range(413)])
+
+        block[5000:5004] = b'LAME'
+
+        self.assertEqual(rescue_damaged_media.classify_window(bytes(block)), 'mp3')
+
+    def test_random_data_is_not_claimed(self):
+        """
+        Over-claiming is the expensive error: it sends unusable regions to a slow
+        transcode and fills the rescue folder with files that must be reviewed.
+        """
+        import hashlib
+
+        noise = bytearray()
+        seed = b'seed'
+
+        while len(noise) < (1 << 18):
+            seed = hashlib.sha256(seed).digest()
+            noise += seed
+
+        self.assertEqual(rescue_damaged_media.classify_window(bytes(noise)), 'unknown')
+
+    def test_short_buffer_is_not_classified(self):
+        """A buffer too small to hold a packet grid cannot support any verdict."""
+        self.assertEqual(rescue_damaged_media.classify_window(b'\x47' * 64), 'unknown')
+
+    def test_sync_alignment_trims_to_a_packet_boundary(self):
+        """
+        ffmpeg often refuses a transport stream that does not start on a packet
+        boundary, so a carved fragment has to be trimmed before it is handed over.
+        """
+        stream = self.make_ts(200)
+        offset = rescue_damaged_media.align_to_sync(b'\x11\x22\x33\x44' + stream)
+
+        self.assertEqual(offset, 8)
+
+    def test_region_profile_finds_a_buried_stream(self):
+        """
+        The 2009/00006.MTS case: unreadable at the start, with transport-stream video
+        three quarters of the way in. ffprobe only inspects the beginning, so anything
+        relying on it alone reports the file as empty.
+        """
+        import hashlib
+
+        noise = bytearray()
+        seed = b'x'
+
+        while len(noise) < (6 << 20):
+            seed = hashlib.sha256(seed).digest()
+            noise += seed
+
+        path = self.root / 'buried.MTS'
+        path.write_bytes(bytes(noise) + self.make_ts(40000))
+
+        regions = rescue_damaged_media.profile_carve_regions(path)
+        kinds = [kind for kind, _, _ in regions]
+
+        self.assertIn('ts', kinds)
+        # And the stream must be found past the noise, not at offset 0
+        first_ts = next(start for kind, start, _ in regions if kind == 'ts')
+        self.assertGreater(first_ts, 4 << 20)
+
+
+class TestRescueOutputNaming(unittest.TestCase):
+    """
+    Naming and byte-exactness. A partial recovery sitting beside real footage must be
+    impossible to mistake for a clean original.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.mkdtemp()
+        self.root = Path(self.temp)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp, ignore_errors=True)
+
+    def test_damaged_marker_is_present(self):
+        self.assertEqual(rescue_damaged_media.DAMAGED_MARKER, '_DAMAGED')
+
+    def test_year_is_taken_from_the_source_path(self):
+        year = rescue_damaged_media.year_for(Path('/Volumes/home-movies/2009/00030.MTS'))
+
+        self.assertEqual(year, '2009')
+
+    def test_unfoldered_source_still_gets_a_destination(self):
+        """The 'New-after reset' files sit outside any year folder and must not vanish."""
+        year = rescue_damaged_media.year_for(
+            Path('/Volumes/home-movies/2011 Summer Vacation/New-after reset/00024.MTS'))
+
+        self.assertEqual(year, 'undated')
+
+    def test_prefix_cut_is_byte_exact(self):
+        """
+        The valid prefix is intact AVCHD and must stay that way -- the cut is a byte
+        copy, never a re-encode, so nothing is lost before ffmpeg ever sees it.
+        """
+        payload = bytes(range(256)) * 400
+        source = self.root / 'source.MTS'
+        source.write_bytes(payload)
+        destination = self.root / 'prefix.mts'
+
+        written = rescue_damaged_media.cut_valid_prefix(source, 12345, destination)
+
+        self.assertEqual(written, 12345)
+        self.assertEqual(destination.read_bytes(), payload[:12345])
+
+    def test_carved_jpegs_must_decode(self):
+        """
+        A naive SOI-to-EOI carve yields mostly garbage. Garbage in a rescue folder is
+        worse than nothing, because every file there has to be reviewed by hand.
+        """
+        import cv2
+        import numpy as np
+
+        # Noise, not a flat fill: a solid-colour JPEG compresses to a couple of KB and
+        # falls under the size floor, which would test the floor rather than the carve.
+        real = self.root / 'real.jpg'
+        generator = np.random.default_rng(1234)
+        cv2.imwrite(str(real),
+                    generator.integers(0, 256, (600, 600, 3), dtype=np.uint8))
+        valid = real.read_bytes()
+        self.assertGreater(len(valid), rescue_damaged_media.MIN_CARVED_JPEG)
+
+        # A decoy that has the markers but no decodable image between them
+        decoy = b'\xff\xd8\xff\xe0' + b'\x41' * 40000 + b'\xff\xd9'
+        blob = decoy + b'\x00' * 500 + valid
+
+        source = Path('/nas/2009/00026.MTS')
+        captured = datetime(2009, 12, 25, 19, 41, 2)
+        saved = rescue_damaged_media.carve_jpegs(blob, self.root, source, captured, 1)
+
+        self.assertEqual(len(saved), 1)
+        self.assertIn('_DAMAGED', saved[0][0].name)
+        # Date first, so the file sorts chronologically beside the rest of the archive
+        self.assertTrue(saved[0][0].name.startswith('20091225_194102_00026'))
+
+
+class TestRescueNaming(unittest.TestCase):
+    """
+    Output naming. Both rules here came from reviewing the first imported batch.
+    """
+
+    def test_capture_date_leads_the_filename(self):
+        """
+        The archive is ordered by date -- neighbouring files are named
+        `20091225_202803_CAM.h265.mp4` -- so a name starting with the source's reel
+        number sorts to the top of the folder and breaks the chronology.
+        """
+        name = rescue_damaged_media.output_name(
+            Path('/nas/2009/00006.MTS'), datetime(2009, 12, 25, 19, 12, 20), '.mp4')
+
+        self.assertEqual(name, '20091225_191220_00006_DAMAGED.mp4')
+
+    def test_provenance_and_damage_marker_survive(self):
+        """The source reel and the partial-recovery warning both have to remain."""
+        name = rescue_damaged_media.output_name(
+            Path('/nas/2010/00057.MTS'), datetime(2010, 3, 16, 20, 29, 2), '.mp4', 2)
+
+        self.assertIn('00057', name)
+        self.assertIn('_DAMAGED', name)
+        self.assertTrue(name.endswith('_extracted2.mp4'))
+
+    def test_missing_date_still_produces_a_usable_name(self):
+        """A source with no recoverable date must not crash the rescue."""
+        name = rescue_damaged_media.output_name(Path('/nas/x/00099.MTS'), None, '.mp4')
+
+        self.assertEqual(name, '00099_DAMAGED.mp4')
+
+    def test_numbering_is_sequential_over_surviving_outputs(self):
+        """
+        The bug this replaces: numbering ran over regions *found*, so a region that
+        failed validation burned its number. 00057 shipped as extracted 2, 3 and 4 with
+        no 1, because its first region did not decode. Numbering now follows the files
+        that actually exist.
+        """
+        source = Path('/nas/2010/00057.MTS')
+        captured = datetime(2010, 3, 16, 20, 29, 2)
+        produced = []
+
+        for region_succeeded in (False, True, True):
+            name = rescue_damaged_media.output_name(
+                source, captured, '.mp4', len(produced) + 1)
+
+            if region_succeeded:
+                produced.append(name)
+
+        self.assertTrue(produced[0].endswith('_extracted1.mp4'))
+        self.assertTrue(produced[1].endswith('_extracted2.mp4'))
+
+
+# ============================================================================
+# SECTION 19: Import Preflight
+# ============================================================================
+
+class StubDuplicateResult:
+    """Minimal stand-in so preflight tests do not need the real 38k-file archive index."""
+
+    def __init__(self, is_duplicate=False, existing_path=None):
+        self.is_duplicate = is_duplicate
+        self.existing_path = existing_path
+
+
+class StubDetector:
+    """Returns a fixed verdict, isolating preflight logic from duplicate detection."""
+
+    def __init__(self, result=None):
+        self.result = result or StubDuplicateResult()
+
+    def find_duplicate(self, path):
+        return self.result
+
+
+class TestImportPreflight(unittest.TestCase):
+    """
+    Predicting an import before running it.
+
+    Every one of these cases is a real defect the rescued files would have caused: 29
+    files dated to the day they were rescued, audio routed into the photo archive, and
+    five re-encodes of footage already archived that the duplicate detector cleared
+    because a re-encode shares no bytes with its archived counterpart.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.mkdtemp()
+        self.root = Path(self.temp)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp, ignore_errors=True)
+
+    def make_file(self, name, when=None):
+        """Create a file, optionally back-dating its mtime."""
+        path = self.root / name
+        path.write_bytes(b'\x00' * 2048)
+
+        if when is not None:
+            stamp = when.timestamp()
+            os.utime(path, (stamp, stamp))
+
+        return path
+
+    def test_recent_mtime_is_a_blocker(self):
+        """
+        An mtime of today is the processing date, not a capture date. This is what sent
+        all 29 rescued files into a single 2026 folder.
+        """
+        path = self.make_file('rescued.mp4', datetime.now())
+
+        prediction = preflight_import.predict(path, StubDetector(), {})
+        severities = [severity for severity, _ in prediction['issues']]
+
+        self.assertIn('BLOCKER', severities)
+
+    def test_old_mtime_is_only_a_warning(self):
+        """
+        A years-old mtime is weak evidence but usually roughly right. Calling it a
+        blocker would bury the blockers that matter.
+        """
+        path = self.make_file('old.mp4', datetime(2010, 4, 14, 8, 13, 30))
+
+        prediction = preflight_import.predict(path, StubDetector(), {})
+        severities = [severity for severity, _ in prediction['issues']]
+
+        self.assertNotIn('BLOCKER', severities)
+        self.assertIn('WARNING', severities)
+
+    def test_audio_has_no_archive_destination(self):
+        """
+        is_video_file() says an mp3 is not a video, so the organizer sends it to
+        Organized_Photos. Nearly six hours of recovered audio would have gone there.
+        """
+        path = self.make_file('recovered.mp3', datetime(2010, 1, 24))
+
+        prediction = preflight_import.predict(path, StubDetector(), {})
+        messages = ' '.join(message for _, message in prediction['issues'])
+
+        self.assertIn('audio', messages.lower())
+        self.assertIn('BLOCKER', [severity for severity, _ in prediction['issues']])
+
+    def test_already_archived_content_is_blocked_by_provenance(self):
+        """
+        The case no heuristic catches. 00017_DAMAGED.mp4 is a re-encode of footage
+        already archived from the same source, sharing no bytes with it, so the
+        duplicate detector clears it. Only the source mapping proves the redundancy.
+        """
+        path = self.make_file('00017_DAMAGED.mp4', datetime(2009, 12, 25, 20, 28))
+        provenance = {
+            '00017_DAMAGED.mp4': ('/Volumes/home-movies/2009/00017.MTS',
+                                  '2009/12 December/20091225_202803_CAM.h265.mp4'),
+        }
+
+        prediction = preflight_import.predict(path, StubDetector(), provenance)
+        blockers = [message for severity, message in prediction['issues']
+                    if severity == 'BLOCKER']
+
+        self.assertTrue(any('already archived' in message for message in blockers))
+
+    def test_redundancy_notes_that_the_duplicate_detector_misses_it(self):
+        """
+        The warning matters as much as the blocker: it explains why the existing safety
+        net does not catch this, so the check is not later assumed redundant.
+        """
+        path = self.make_file('00065_DAMAGED.mp4', datetime(2010, 4, 7))
+        provenance = {'00065_DAMAGED.mp4': ('/nas/00065.MTS', '2010/04 April/x.mp4')}
+
+        prediction = preflight_import.predict(path, StubDetector(), provenance)
+        warnings = [message for severity, message in prediction['issues']
+                    if severity == 'WARNING']
+
+        self.assertTrue(any('does NOT catch' in message for message in warnings))
+
+    def test_new_content_with_a_real_date_is_clean(self):
+        """A file with nothing wrong must produce no issues, or the tool is noise."""
+        path = self.make_file('IMG_20240101_120000.mp4')
+
+        prediction = preflight_import.predict(path, StubDetector(), {})
+
+        self.assertEqual(prediction['issues'], [])
+        self.assertEqual(prediction['date'].year, 2024)
+
+    def test_destination_uses_the_organizers_own_logic(self):
+        """
+        Predictions must call the real functions. Reimplementing them would let the
+        prediction drift from behaviour, which is the one thing this tool cannot do.
+        """
+        path = self.make_file('IMG_20091225_202803.mp4')
+
+        prediction = preflight_import.predict(path, StubDetector(), {})
+        expected = organize_archive.get_destination_folder(
+            organize_archive.get_creation_date(path)[0], True)
+
+        self.assertEqual(prediction['destination'], expected)
+
+    def test_multiple_outputs_from_one_source_are_flagged(self):
+        """
+        A rescue can extract the same footage two ways -- a whole-file decode and a carve
+        of the same bytes -- producing outputs that look independent. 00050 gave a direct
+        extraction of 2,065 frames beside two carved files holding 2,007 between them,
+        and importing all three would have filed one clip as three.
+        """
+        first = self.make_file('00050_DAMAGED.mp4', datetime(2010, 2, 14))
+        second = self.make_file('00050_DAMAGED_carved1.mp4', datetime(2010, 2, 14))
+        provenance = {
+            '00050_DAMAGED.mp4': ('/nas/2010/00050.MTS', None),
+            '00050_DAMAGED_carved1.mp4': ('/nas/2010/00050.MTS', None),
+        }
+
+        predictions = [preflight_import.predict(p, StubDetector(), provenance)
+                       for p in (first, second)]
+        preflight_import.find_sibling_redundancy(predictions)
+
+        for prediction in predictions:
+            messages = [m for severity, m in prediction['issues'] if severity == 'WARNING']
+            self.assertTrue(any('2 outputs rescued from' in m for m in messages))
+
+    def test_single_output_source_is_not_flagged(self):
+        """
+        Siblings are sometimes genuinely the only option: 00006's carve is its sole
+        output because direct extraction produced nothing. One output is never redundant.
+        """
+        path = self.make_file('00006_DAMAGED_carved1.mp4', datetime(2009, 12, 25))
+        provenance = {'00006_DAMAGED_carved1.mp4': ('/nas/2009/00006.MTS', None)}
+
+        predictions = [preflight_import.predict(path, StubDetector(), provenance)]
+        preflight_import.find_sibling_redundancy(predictions)
+
+        messages = [m for _, m in predictions[0]['issues']]
+        self.assertFalse(any('outputs rescued from' in m for m in messages))
+
+    def test_two_inputs_claiming_one_destination_are_flagged(self):
+        """
+        The organizer resolves collisions by appending _1, silently, so two versions of
+        one recording end up side by side looking like two takes.
+        """
+        first = self.make_file('IMG_20091225_202803.mp4')
+        second = self.root / 'sub'
+        second.mkdir()
+        duplicate = second / 'IMG_20091225_202803.mp4'
+        duplicate.write_bytes(b'\x00' * 2048)
+
+        predictions = [preflight_import.predict(p, StubDetector(), {})
+                       for p in (first, duplicate)]
+        internal, _ = preflight_import.find_collisions(predictions)
+
+        self.assertEqual(len(internal), 1)
+        self.assertEqual(len(next(iter(internal.values()))), 2)
+
+
+# ============================================================================
+# SECTION 20: Conversion Verification and Splice Attribution
+# ============================================================================
+
+class TestConversionVerification(unittest.TestCase):
+    """
+    The two traps in verify_conversions.py, both of which produced wrong reports before
+    being fixed and are invisible without a test.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.mkdtemp()
+        self.root = Path(self.temp)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp, ignore_errors=True)
+
+    def test_ssim_and_psnr_keys_both_resolve(self):
+        """
+        analyze_video_quality disagrees with itself: calculate_ssim returns {'all': ...}
+        and calculate_psnr returns {'average': ...}. Reading 'all' for both looks like it
+        works, because SSIM answers and PSNR silently returns None — which is exactly how
+        an earlier verification reported PSNR unavailable against a perfectly good tool.
+        """
+        self.assertAlmostEqual(verify_conversions.metric_value({'all': 0.9277}), 0.9277)
+        self.assertAlmostEqual(verify_conversions.metric_value({'average': 36.07}), 36.07)
+
+    def test_plain_number_and_junk_are_handled(self):
+        """A bare float must pass through; anything unrecognized must not crash."""
+        self.assertEqual(verify_conversions.metric_value(41.5), 41.5)
+        self.assertIsNone(verify_conversions.metric_value(None))
+        self.assertIsNone(verify_conversions.metric_value({'unexpected': 1.0}))
+
+    def test_output_moved_into_an_event_folder_is_still_found(self):
+        """
+        create_event_folders.py relocates archived files after import, leaving the
+        conversion index pointing somewhere that no longer exists. Twelve of 646
+        home-movies outputs had moved, and calling them missing every run would make the
+        report ignorable.
+        """
+        moved = self.root / '2013' / '05 May' / 'Home Walkthroughs'
+        moved.mkdir(parents=True)
+        target = moved / '20130510_104649_CAM.h265.mp4'
+        target.write_bytes(b'\x00')
+
+        index = {target.name: [target]}
+        resolved, was_moved = verify_conversions.resolve_output(
+            '2013/05 May/20130510_104649_CAM.h265.mp4', index)
+
+        self.assertEqual(resolved, target)
+        self.assertTrue(was_moved)
+
+    def test_ambiguous_filename_is_not_guessed(self):
+        """
+        Two files sharing a name means the fallback cannot know which is meant, so it
+        must report the indexed location and let the failure be honest rather than
+        silently verify the wrong file.
+        """
+        first = self.root / 'a' / 'clip.mp4'
+        second = self.root / 'b' / 'clip.mp4'
+
+        for path in (first, second):
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b'\x00')
+
+        _, was_moved = verify_conversions.resolve_output(
+            '2013/05 May/clip.mp4', {'clip.mp4': [first, second]})
+
+        self.assertFalse(was_moved)
+
+
+class TestSpliceAttribution(unittest.TestCase):
+    """
+    Turning findings into decisions: which era, and what reached the archive.
+    """
+
+    def test_year_is_taken_from_a_path_component(self):
+        self.assertEqual(
+            attribute_splices.year_of('/Volumes/home-movies/2009/00017.MTS'), '2009')
+
+    def test_pathological_years_are_not_matched(self):
+        """
+        A four-digit run is not a year. Matching one would scatter the clustering that
+        the whole report depends on.
+        """
+        self.assertEqual(
+            attribute_splices.year_of('/Volumes/share/1234/clip.MTS'), 'unfoldered')
+        self.assertEqual(
+            attribute_splices.year_of('/Volumes/share/00042/clip.MTS'), 'unfoldered')
+
+    def test_unfoldered_sources_are_still_counted(self):
+        """
+        The two files outside any year folder sat in 'New-after reset' and were the only
+        affected files outside 2009 and 2010, so dropping them would have hidden the one
+        exception to the clustering.
+        """
+        year = attribute_splices.year_of(
+            '/Volumes/home-movies/2011 Summer Vacation/New-after reset/00024.MTS')
+
+        self.assertEqual(year, 'unfoldered')
+
+    def test_only_foreign_statuses_count_as_affected(self):
+        """
+        Empty files are a separate pre-existing problem. Counting them as foreign content
+        would inflate the 2014 rate and invent a third cluster.
+        """
+        self.assertIn('spliced', attribute_splices.FOREIGN_STATUSES)
+        self.assertIn('entirely foreign', attribute_splices.FOREIGN_STATUSES)
+        self.assertNotIn('empty', attribute_splices.FOREIGN_STATUSES)
+        self.assertNotIn('ok', attribute_splices.FOREIGN_STATUSES)
 
 
 # ============================================================================

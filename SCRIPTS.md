@@ -235,9 +235,71 @@ Also has a CLI for checking a single file against the archive.
 
 ### `check_media_health.py`
 
-Is this file actually intact? Full image decode rather than a header read, ffprobe for video including AVCHD, CRC32 per member for ZIP-family documents, `%%EOF` for PDF. `--output PATH` to save the damaged list, `--workers N` to tune for a network share.
+Is this file actually intact? Full image decode rather than a header read, ffprobe for video including AVCHD, CRC32 per member for ZIP-family documents, `%%EOF` for PDF. `--output PATH` to save the damaged list, `--workers N` to tune for a network share, `--deep` to fully decode video streams rather than probing the container.
+
+Also verifies a video is a video: a missing video stream reports `not a video`, and a container disagreeing with the extension reports `wrong container`. Eight `.MTS` files on the home-movies share passed every damage check while containing no footage at all — one is 94 MB of MP3 audio that ffprobe happily describes as a valid 2,959-second stream.
 
 The only check here that can see corruption inherited from a pre-ZFS NAS generation.
+
+### `detect_splices.py`
+
+Finds media files containing data that belongs to *other* files — the failure where footage is not degraded but replaced. `check_media_health.py --deep` sees the symptom and attributes it to codec damage; this explains it.
+
+Works by structural continuity, since every container we hold is a chain with a predictable next step: MPEG-TS holds a `0x47` sync byte every 192 bytes, ISOBMFF walks a box chain, JPEG runs marker segments to one End-of-Image, PNG walks length-prefixed chunks to IEND.
+
+Transport streams give the strongest signal. Blocks lifted from another `.MTS` still hold sync every 192 bytes but at a different **phase**, because the splice point does not respect the donor's packet grid — so measuring phase separates "another recording's blocks" from "an MP3's blocks" from "unstructured data".
+
+Three states are reported separately, because collapsing them misstates the damage in both directions:
+
+| state | meaning |
+|---|---|
+| aligned | sync on this file's own grid — continuous video |
+| phase-shifted | sync at a different phase. Ambiguous: donor blocks, **or** this recording resuming after a gap |
+| foreign | no transport-stream structure at any phase — definitely not video |
+
+Only the last supports a confident claim that footage is gone. An earlier version counted phase-shifted data as lost and reported a 35%-recoverable file as 99.5% destroyed.
+
+Byte totals are approximate; true footage loss is measured by decoding. Transport streams are sampled at 64 KB per megabyte, so foreign regions under ~1 MB are invisible — `--full` reads everything.
+
+`--output PATH` for JSON, `--workers N` for a network share.
+
+Trailing data after a JPEG's End-of-Image is only reported when it matches no known-good trailer, since motion photos and MPO stereo pairs append a second payload deliberately.
+
+### `preflight_import.py`
+
+Predicts exactly what an import would do, before it does it. `preflight_import.py <directory>`, `--manifest` for provenance, `--verbose` for every file. Exits non-zero when blockers are found.
+
+`--dry-run` on the organizer answers "where does each file go". This answers the questions that actually break an archive: is this content already here under a different name, will two files land on the same path, is this date trustworthy, and is this file even the kind of thing the destination expects.
+
+Every prediction calls the organizer's own `get_creation_date()`, `get_destination_folder()` and `compute_destination_filename()` rather than reimplementing them, so the prediction cannot drift from behavior.
+
+Three severities. **BLOCKER** — an mtime younger than 30 days (that is the processing date, not a capture date), audio with no archive destination, content already archived from the same source, or a destination collision. **WARNING** — an older mtime, plausible but not authoritative. **NOTE** — the duplicate detector matched something.
+
+The provenance check is the one that matters and the only one no heuristic can do. A re-encode shares no bytes with the archived copy of the same footage, so the duplicate detector clears it. But the conversion index records which source produced which archived file, and the rescue manifest records which source produced which rescued file — join them and the redundancy is exact rather than guessed. Run against `_RESCUED/` it correctly blocked all five rescues whose footage was already in the archive.
+
+### `verify_conversions.py`
+
+Verifies that a conversion batch did not degrade the archive. `--source-filter SUBSTRING` to scope to one batch, `--parity-only` to skip the expensive tier, `--sample N`, `--output PATH`. Exits non-zero on any mismatch.
+
+"ffmpeg exited zero" is not evidence — it exits zero on a file it decoded halfway before hitting an unrecoverable error, producing a short but structurally valid output. That is precisely how five damaged AVCHD sources passed unnoticed until durations were compared.
+
+**Tier 1** runs on every pair: duration, resolution, frame count, surviving audio, and whether the output probes at all. **Tier 2** measures SSIM and PSNR on a sample taken evenly across the size range rather than at random, because degradation concentrates in the busiest footage and a random sample is mostly short simple clips.
+
+Pairs come from the conversion index, never from filenames — a converted file shares no bytes and usually no name with its source. Outputs that `create_event_folders.py` has since relocated are resolved by filename, since otherwise 12 of 646 home-movies conversions report as missing on every run.
+
+Two API traps are handled: `calculate_ssim` returns `{'all': ...}` while `calculate_psnr` returns `{'average': ...}`, and reading `'all'` for both silently yields no PSNR at all.
+
+### `attribute_splices.py`
+
+Turns `detect_splices.py` findings into decisions. `--findings PATH`, `--source-root PATH` for the rate denominator.
+
+The detector says which files hold other files' data. This answers the two questions that decide what to do about it:
+
+**When.** Clustering by year separates a bounded historical event from ongoing rot, which changes whether the storage is still trustworthy. On the home-movies share: 43.5% of 2009 and 34.3% of 2010 affected, and 0.0% of every year from 2011 onward across 1,235 files.
+
+**What got in.** Whether a damaged source reached the archive decides between "contaminated" and "merely incomplete". Answered exactly rather than heuristically, from the conversion index.
+
+Also lists sources holding no footage of their own — not damaged but *absent*, where no transcode recovers anything and the reported duration is fiction.
 
 ### `check_nas_archive.py`
 
@@ -260,6 +322,28 @@ Named for Nikon but works on any source directory.
 ---
 
 ## Repair and cleanup
+
+### `rescue_damaged_media.py`
+
+Salvages what is still readable from files that `detect_splices.py` found holding foreign content. Takes that tool's JSON findings; `--dry-run` to see the plan, `--only SUBSTRING` to work one file.
+
+The originating SD cards are gone, so the damaged NAS copies are the only surviving record — this is a one-shot job, and every source is treated as read-only.
+
+Three strategies, because handling them alike loses footage:
+
+| situation | approach |
+|---|---|
+| **spliced** — real video, then someone else's bytes | Cut the valid prefix on a packet boundary, *then* transcode. Handing ffmpeg the whole file makes it fight through the foreign region, which is how five of these came out short when first converted |
+| **foreign** — no footage of its own | Extract whatever it actually holds, as its own type. These are not empty: roughly six hours of MP3, a JPEG, an m4v, and two carrying h264 |
+| **unreadable** — ffprobe opens nothing | Carve. ffprobe only inspects the beginning, so "no readable stream" means "nothing at the start" — `2009/00006.MTS` holds 97 MB of transport stream in its final quarter |
+
+Carving maps the file megabyte by megabyte into `ts`, `mp3`, `jpeg`, or `unknown` regions, trims transport-stream fragments to a packet boundary so ffmpeg will accept them, and validates every carved JPEG by decoding it — an unvalidated SOI-to-EOI carve yields mostly garbage, and garbage in a rescue folder is worse than nothing because it all has to be reviewed by hand.
+
+Output goes to `_RESCUED/<year>/`, named `YYYYMMDD_HHMMSS_<source stem>_DAMAGED[_extractedN].<ext>` — for example `20091225_191220_00006_DAMAGED_extracted1.mp4`.
+
+The capture date leads because the archive is ordered that way; a name starting with the source reel number sorts to the top of its folder and breaks the chronology the folder exists to express. The source stem follows for provenance, and `_DAMAGED` guarantees a partial recovery is never mistaken for a clean original. The date comes from the damaged source itself, since a rescue is a fresh encode whose own mtime is merely the moment of rescue.
+
+`_extractedN` appears when one source yields several pieces, numbered over the outputs that **survive validation** rather than the regions found. Numbering by region left permanent gaps — `00057` originally shipped as `carved2`, `carved3` and `carved4` with no `carved1`, because its first region failed to decode and was deleted. Encoder settings match `camcorder_convert.py` (libx265, CRF 26, preset slow) rather than introducing a second quality standard. Nothing is imported into the archive; a manifest is written for review.
 
 ### `cleanup_orphaned_json.py`
 

@@ -2,6 +2,232 @@
 
 ---
 
+## v21 — 2026-08-09 — "Promotion and cleanup"
+
+Two temporary scripts earned permanent homes; 5.4 GB of scaffolding did not.
+
+<details>
+
+### Promoted
+
+**`verify_conversions.py`** — verifies a conversion batch did not degrade the archive. Tier 1 checks duration, resolution, frame count, audio and decodability on every pair; tier 2 measures SSIM and PSNR on a sample taken evenly across the size range, because degradation concentrates in the busiest footage and a random sample is mostly short simple clips. Pairs come from the conversion index, never from filenames.
+
+Promoting it surfaced two defects the throwaway version had been carrying.
+
+`analyze_video_quality` disagrees with itself about its own return key: `calculate_ssim` gives `{'all': ...}` and `calculate_psnr` gives `{'average': ...}`. Reading `'all'` for both *appears* to work, because SSIM answers and PSNR silently returns `None` — which is what earlier made a verification report PSNR as unavailable against a perfectly healthy tool.
+
+And 12 of 646 home-movies outputs reported as **missing**. They were not: `create_event_folders.py` had relocated them into named event subfolders after import, leaving the conversion index pointing at paths that no longer existed. A tool reporting a dozen phantom failures on every run is one nobody reads, so outputs are now resolved by filename when the recorded path is gone — and refuses to guess when a name is ambiguous. With that fixed, the batch verifies **641 ok, 5 mismatched**, the five being the known damaged sources.
+
+**`attribute_splices.py`** — turns findings into decisions. Clustering by year separates a bounded historical event from ongoing rot, and the archive-impact join answers whether the archive is contaminated or merely incomplete. Both were the analyses that made the splice findings actionable, and the `photosync` and `videos` shares are still unscanned.
+
+### Removed
+
+52 items, **5.4 GB**, dominated by `.TMP_all_similars` at 5.0 GB — the exported comparison set from the SSIM calibration session, whose conclusion now lives as the 0.92 keeper floor in `duplicate_detector.py`.
+
+Also gone: the splice investigation scaffolding superseded by `detect_splices.py`; the one-off repairs for rescue dates and naming, now done natively by `rescue_damaged_media.py`, where keeping them would only invite a destructive re-run; and the dedupe diagnostics whose findings survive as regression tests.
+
+Two deleted with prejudice: `probe_duration_overlap` and `probe_home_movies_overlap`. That method produced the 94.3% overlap figure that was completely wrong, and leaving them invites someone to trust them again.
+
+Two kept, still blocked on open work: the `-edited` pair analyses, since NEXT.md's 898-file ruling remains unimplemented.
+
+### Added `_records/`
+
+`detect_splices.py` output for the home-movies share, preserved because it stops being reproducible the moment the damaged sources are deleted — it is the only per-file record of what was wrong with each one. Everything else this project produces is derived and regenerable; this is not.
+
+### Also in this cycle
+
+The rescued files were imported and then reviewed by hand, which produced the naming correction in the previous entry. The archive now also holds several deliberately-duplicated recoveries: the excluded re-encodes were copied in on purpose, to be resolved during a manual per-video review rather than by tooling.
+
+- **Tests** — 248 to 256
+
+</details>
+
+---
+
+## v20 — 2026-08-09 — "Damaged-media rescue"
+
+Six hours of content pulled out of the 24 sources holding foreign data, after confirming the originating SD cards are gone from the hard archive and these damaged copies are the only surviving record.
+
+<details>
+
+### What was recovered
+
+All 24 sources yielded something. Nothing was a total loss.
+
+| | amount |
+|---|---|
+| video | 13.5 minutes |
+| audio | 348.9 minutes |
+| images | 1 |
+| **total** | **362.4 minutes across 29 files, 1.08 GB** |
+
+The part that mattered is six spliced files nobody had ever rescued. The conversion pre-screen correctly kept them out of the archive during the original run, but "held back" had quietly become "forgotten", and they had no converted form at all — `00024` alone gave back 3,641 frames, and the six together **6,462 frames of footage that existed nowhere else**.
+
+For the five spliced files that *were* converted, the archived copy turns out to be equal or better in every case, so nothing in `Organized_Videos` needs replacing.
+
+### Three strategies, because none of them dominates
+
+| situation | approach |
+|---|---|
+| spliced | encode the valid prefix **and** the whole file, keep whichever holds more frames |
+| foreign | extract whatever the file actually holds, as its own type |
+| unreadable | carve region by region |
+
+### The assumption that cost the most
+
+Cutting a spliced file at its first splice and encoding only the clean prefix seemed obviously right: why make ffmpeg fight through foreign data? It is wrong, and wrong in the direction that discards footage. Valid video *resumes* after the first foreign region — the phase-shifted stretches `detect_splices.py` deliberately refuses to count as lost are, at least partly, the recording continuing.
+
+On `00071` the prefix cut yielded **15 frames** against **1,416** from a whole-file decode, because its first splice lands 1 MB into a 210 MB file.
+
+But the reverse happens too: on `00030` and `00042` the whole-file decode produced *nothing at all* and only the cut worked. So both are encoded and the better kept. Had the first approach run to completion unchallenged it would have recovered 2,957 of the 6,462 new frames and called it done.
+
+### Duration is not footage
+
+A salvaged file keeps the source's timestamps, so recovered frames scatter across the original timeline with gaps where the damage was. `00003` reports 27.19 seconds while holding 242 frames — an average of 8.9 fps.
+
+This produced a wrong conclusion before it was caught: `00017` appeared to beat its archived copy 47.7s to 41.9s, suggesting the error-tolerant decode flags were recovering material the original conversion missed. By frame count the two are identical, 1,143 against 1,145. The extra seconds were gaps. Selection between rescue candidates and all reporting now use frame counts.
+
+### Carving beats ffprobe on files ffprobe cannot open
+
+ffprobe inspects only the start of a file, so "no readable stream" means "nothing at the beginning" — the same shape of error that let an MP3 pass as a healthy home movie in v19.
+
+| file | direct extraction | after carving |
+|---|---|---|
+| `2010/00057.MTS` | 21s | **938s** (+917s, almost all audio) |
+| `2009/00006.MTS` | nothing | 48s of video |
+| `2010/00050.MTS` | 70s | 69s (no gain) |
+
+Carving maps a file megabyte by megabyte into `ts`, `mp3`, `jpeg` or `unknown` regions, trims transport-stream fragments to a packet boundary so ffmpeg will accept them, and validates every carved JPEG by decoding it. Regions that produce nothing decodable are deleted rather than left behind — one of `00057`'s two MP3 regions failed that check and was discarded.
+
+### Deleting the damaged sources is safe
+
+The share is `smbfs` to TrueNAS. A client-side delete is an unlink RPC with no visibility into block allocation; ZFS is copy-on-write and refcounted; and the foreign bytes are a copy baked into file content when the data moved off the pre-ZFS generations, not a live reference. The files those bytes came from cannot be fragmented by deleting these. The real risk is different: deletion destroys the only surviving copy of anything not yet extracted.
+
+### Import preflight, and what it caught
+
+Inspecting one rescued file by hand showed it was mostly a re-encode of footage already archived, plus a couple of seconds of snippets from other recordings. Checking what an import would really do found all 29 rescued files were problems, and none of it was visible to `--dry-run`.
+
+`preflight_import.py` predicts the outcome using the organizer's own `get_creation_date()`, `get_destination_folder()` and `compute_destination_filename()`, so the prediction cannot drift from behavior.
+
+| failure | effect |
+|---|---|
+| dates | a rescue is a fresh encode with no capture metadata, so mtime dated 2009 recordings to the day they were rescued — all 29 into one 2026 folder |
+| routing | `is_video_file()` says an mp3 is not a video, so 5.8 hours of recovered audio would enter `Organized_Photos` |
+| redundancy | the duplicate detector cleared every one, because a re-encode shares no bytes with the archived copy of the same footage |
+
+The redundancy case is the dangerous one and no heuristic finds it. It is knowable only from provenance: the conversion index records which source produced which archived file, the rescue manifest records which source produced which rescued file, and joining them makes it exact. Five rescues are correctly blocked.
+
+Building it exposed two defects in the rescue tool. Outputs carried no capture date — now stamped from the source, recovering a real date for all 24. And the manifest was overwritten by each of the three rescue passes rather than merged, leaving only the last, which silently disabled the provenance check.
+
+A further check came out of importing: several outputs rescued from one source are often the same footage extracted two ways. `00050` produced a direct extraction of 2,065 frames beside two carved files holding 2,007 between them; importing all three would have filed one clip as three. A warning rather than a blocker, since `00006`'s carve is its only output.
+
+### Imported
+
+11 files, filed to their recovered dates and verified in place — 511 seconds of video and one 2560×1920 photograph, spanning 2006 to 2011. Several were mis-foldered on the NAS: `00003` sat in `2009/` but was recorded 2010-12-17.
+
+Not imported: the 5 already-archived re-encodes, the 9 MP3s (no audio destination, and to be discarded by hand rather than by any automated rule), and 4 redundant carved siblings.
+
+### Naming, corrected after reviewing the imported batch
+
+Two problems, both visible only once the files sat beside real footage.
+
+The archive is ordered by date -- neighbouring files are named `20091225_202803_CAM.h265.mp4` -- so `00006_DAMAGED_carved1.mp4` sorted to the top of its folder and broke the chronology the folder exists to express. Rescued files now lead with the capture date, keep the source stem for provenance, and keep `_DAMAGED`:
+
+    20091225_191220_00006_DAMAGED_extracted1.mp4
+
+The suffix is now `_extracted` rather than `_carved`, describing the result instead of the technique, so one word covers a whole-file decode, a prefix cut and a region carve alike.
+
+And the numbering was wrong. It ran over regions *found*, so a region that failed validation burned its number permanently: `00057` shipped as `carved2`, `carved3` and `carved4` with **no `carved1`**, because its first region did not decode and was deleted. Numbering now follows the outputs that survive, which also answers what the sequence is for -- `00050` legitimately has `extracted1` and `extracted2`, and a source with one output simply has no suffix at all.
+
+40 files renamed in place across `_RESCUED/` and the archive, and the rescued clips now interleave chronologically: `20091225_191220_00006_DAMAGED_extracted1.mp4` sits before the 20:12 clip rather than above the whole folder.
+
+### Changed
+
+- **`preflight_import.py`** (new) — `--manifest`, `--verbose`; exits non-zero on blockers
+- **`rescue_damaged_media.py`** (new) — `--dry-run`, `--only`, `--force-carve`. Output to `_RESCUED/<year>/` with `_DAMAGED` in every filename so a partial recovery cannot be mistaken for a clean original. Encoder settings match `camcorder_convert.py`. Sources are never modified and nothing is imported
+- **Tests** — 222 to 248
+
+</details>
+
+---
+
+## v19 — 2026-08-06 — "Foreign content detection"
+
+A failure class nothing here was checking: files containing data that belongs to *other* files. Found by eye, not by tooling — previewing `2010/00066.MTS` produced 174 MB of MP3 snippets, and neighbouring videos jump mid-playback into unrelated footage.
+
+<details>
+
+### Why the existing checks could not see it
+
+`check_media_health.py --deep` observes the symptom and attributes it to codec damage, which points at the wrong remedy. The distinction is the whole point:
+
+| | meaning | remedy |
+|---|---|---|
+| codec damage | footage degraded but present | transcode salvages what it can |
+| foreign content | footage **replaced** by unrelated bytes | none. It is gone, and the reported duration is fiction |
+
+Worse, the cheap container check passed the most extreme cases outright. `2010/00033.MTS` is 94 MB of MP3 audio, and ffprobe describes it as a valid 2,959-second stream — so "does this decode" answers yes, beautifully. It is a perfectly intact file of entirely the wrong content.
+
+### Detection: structural continuity
+
+Every container here is a chain with a predictable next step, and foreign data breaks it in a way random corruption does not. AVCHD `.MTS` holds a `0x47` sync byte every 192 bytes for the whole file; ISOBMFF walks a box chain; JPEG runs marker segments to one End-of-Image; PNG walks length-prefixed chunks to IEND.
+
+Transport streams give the strongest signal, and the useful trick is **phase**. Blocks lifted from another `.MTS` still hold sync every 192 bytes, just at a different offset within the packet grid, because the splice point does not respect the donor's alignment. Host files here run at phase 4 and donor data repeatedly appears at phase 64 — which separates another recording's blocks from an MP3's blocks from unstructured data.
+
+Sampling makes it cheap: 64 KB read per megabyte detects any foreign region above ~1 MB, and every case found spans 20–140 MB. The whole 130 GB share scanned in **123 seconds** versus 4,406 for the deep decode. `--full` disables sampling.
+
+### Three states, not two
+
+Reporting "good or foreign" gets the accounting wrong in both directions, so windows are classified as aligned, **phase-shifted**, or foreign. Only the last supports a confident claim that footage is gone.
+
+An earlier revision counted phase-shifted data as lost and reported `2010/00071.MTS` as **99.5% destroyed**; the honest figure is 64.6%, which matches ffmpeg independently recovering 54% of its duration. Phase cannot distinguish a donor's blocks from this recording resuming after a gap — resumed data has no reason to land back on the original grid — so pretending otherwise overstates the damage in the one direction that would get files thrown away.
+
+### What the scan found
+
+**`/Volumes/home-movies`, 1,463 files:** 1,428 ok, 13 entirely foreign, 11 spliced, 11 empty. 2.02 GB is definitely not video; a further 0.28 GB is ambiguous phase-shifted data.
+
+The clustering settles the question that actually matters:
+
+| year | files | with foreign content | rate |
+|---|---|---|---|
+| 2009 | 23 | 10 | **43.5%** |
+| 2010 | 35 | 12 | **34.3%** |
+| 2011 | 24 | 0 | 0.0% |
+| 2012–2022 | 1,211 | 0 | 0.0% |
+| unfoldered | 172 | 2 | 1.2% |
+
+**A bounded historical event, not ongoing rot.** Every year from 2011 forward is pristine across 1,235 files. The two unfoldered exceptions live in `2011 Summer Vacation/New-after reset/` numbered `00024` and `00043` — the same range as the 2009/2010 files, so the same card and era the folder name implies.
+
+**The archive was never contaminated.** `Organized_Videos` (2,815 files) and `TO_PROCESS`: zero findings, every box chain continuous. Of the 24 affected sources, 19 were held back by the conversion pre-screen, and the 5 that converted are exactly the files already known to have lost footage.
+
+**13 sources contain no footage whatsoever** — absent, not damaged, totalling 1.1 GB of filenames with nothing behind them. If the original AVCHD cards still exist they predate this and are the only plausible clean copies.
+
+**35,152 photos, 9 findings.** One holds foreign content: `DSC_4375a.jpg` carries 307 KB that is the tail of a different JPEG — entropy data with stuffing at 2.18 per KB, no SOI/SOS/DHT/DQT, ending in its donor's `FFD9`. The visible image decodes correctly. The other 8 carry 169 KB–1.6 MB of trailing **zeros** and all decode at full resolution; zeroed blocks are a materially better outcome than cross-linked ones.
+
+### The mechanism is not established
+
+The expectation was allocation-boundary alignment, which would have proven filesystem block cross-linking. Measured honestly as a range against the uncertainty of one 192-byte packet, the splices land 68, 132, 4, and 316 bytes off the nearest boundary — inconsistent. The first attempt appeared to show clean 1 MB alignment, but that was an artifact of using 1 MB windows, and the second appeared to show none, because the packet walk can only return offsets on the host's own grid. So: proven that these files contain other files' data, not proven how.
+
+### False positives, which were the real engineering risk
+
+A checker that cries wolf is worse than no checker, and this one nearly did three times over.
+
+**3,950 of the first 3,959 photo findings were vendor metadata.** Phone cameras deliberately append data after End-of-Image: 2,036 Samsung Extended Format trailers (`SEFH`, `Image_UTC_Data`) and 1,914 Motorola camera-settings blocks (`<camera>appversion=...`). Both are now allowlisted, alongside the motion-photo and MPO cases anticipated from the start.
+
+**A JPEG marker-walk bug invented corruption.** A run of `0xFF` is legal fill before a marker, not a marker itself. Breaking on it derailed the walk on every JPEG using restart intervals: four archived scans reported "no end marker" despite decoding perfectly and ending in `FFD9`, and one file reported 307 KB of trailing data fabricated from its own image data. Fixed by skipping fill bytes inside the entropy-coded scan.
+
+**Twenty "another transport stream" verdicts came from 98-byte buffers.** Over a buffer shorter than a few dozen packets, `range(phase, 98, 192)` yields one position, so a single chance `0x47` scores a perfect 1.000 sync ratio. The phase test now requires at least 32 packets of data.
+
+### Changed
+
+- **`detect_splices.py`** (new) — handlers for MPEG-TS, ISOBMFF, JPEG and PNG; `--output`, `--workers`, `--full`
+- **`check_media_health.py`** — `check_video()` now reports `not a video` when no video stream is present and `wrong container` when the detected format contradicts the extension. Closes the gap that passed 13 files holding no footage
+- **Tests** — 199 to 222
+
+</details>
+
+---
+
 ## v18 — 2026-07-31 — "Documentation restructure"
 
 Four documents, each with one job, after the project's notes had grown to the point where finding an answer meant reading past it.

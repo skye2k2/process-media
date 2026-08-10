@@ -1,6 +1,6 @@
 # process-media
 
-Tools for consolidating a family's photos and videos from Google Takeout exports, NAS archives, phone backups and camcorder tapes into one organized library, deduplicated and sorted by date.
+Tools for consolidating a family's photos and videos from Google Takeout exports, NAS archives, phone backups and camcorders into one organized library, deduplicated and sorted by date.
 
 Everything reads from `TO_PROCESS/` and writes to `Organized_Photos/` and `Organized_Videos/`, in `YYYY/MM MonthName/` folders with named event subfolders.
 
@@ -41,7 +41,7 @@ Dependencies are pinned in a project-local `.venv/` on purpose, so a system Pyth
 |---|---|
 | Import a Google Takeout export | [Takeout import](#1-takeout-import) |
 | Import a NAS folder, phone dump, or memory card | [Archive import](#2-archive-import) |
-| Convert camcorder tapes or legacy video to H.265 | [Video conversion](#3-video-conversion) |
+| Convert camcorders or legacy video to H.265 | [Video conversion](#3-video-conversion) |
 | Find blurry photos and duplicates to prune | [Review and prune](#4-review-and-prune) |
 | Maintain media that is already organized | [Reprocessing](#5-reprocessing) |
 
@@ -53,7 +53,12 @@ Before importing from anywhere new, two read-only surveys are worth the minutes:
 
 # Is any of it damaged?
 .venv/bin/python check_media_health.py /Volumes/share/SomeFolder
+
+# Does any of it contain data belonging to other files?
+.venv/bin/python detect_splices.py /Volumes/share/SomeFolder
 ```
+
+That third survey exists because the second one is not sufficient on old media. A file can be perfectly intact and still be the wrong content: eight `.MTS` files on the home-movies share hold no footage at all, and ffprobe reports one of them as a valid 2,959-second MP3 stream. "Does this decode" answers yes.
 
 ---
 
@@ -65,6 +70,8 @@ For Google Takeout exports, which arrive as dated folders plus JSON sidecars hol
 # Extract each Takeout archive into TO_PROCESS/ as its own folder, then:
 .venv/bin/python workflow_takeout.py
 ```
+
+<details>
 
 Prompts for the person's name, then in order: repairs truncated extensions (`.MP` → `.mp4`), merges JSON metadata into EXIF, organizes by date with a person suffix, and rebuilds the file index between Takeout folders so duplicate detection stays accurate across 50+ directories.
 
@@ -78,6 +85,8 @@ Prompts for the person's name, then in order: repairs truncated extensions (`.MP
 .venv/bin/python fix_fragmented_metadata.py --dry-run   # reunite split project folders
 .venv/bin/python cleanup_orphaned_json.py --yes         # drop sidecars whose media is gone
 ```
+
+</details>
 
 ---
 
@@ -97,6 +106,8 @@ For anything without JSON sidecars — a NAS folder, a phone dump, a memory card
 | `--person-suffix NAME` | Append an owner suffix to every filename |
 | `--model-suffix SUFFIX` | Override the EXIF-derived camera model suffix for the whole batch |
 
+<details>
+
 **How it decides what is already present**, in order: filename date pattern, sub-second frame discriminators, video duration, file size within tolerance, content hash, and structural similarity for same-dimension recompressions. Camera model suffixes (`_S3500`, `_D3000`) are derived from EXIF per file, so two cameras sharing a filename counter do not collide.
 
 **Two gates run before anything is imported.** A file deliberately deleted in an earlier review is not re-imported — that history comes from the removal scripts the review pages export. A file that fails an integrity check is held back rather than allowed into the archive, where a later review could pick it over a healthy copy. Override with `--ignore-removal-history` or `--import-damaged` on `organize_archive.py` if you genuinely want either.
@@ -106,6 +117,8 @@ For anything without JSON sidecars — a NAS folder, a phone dump, a memory card
 ```bash
 .venv/bin/python apply_date_from_neighbor.py TO_PROCESS/SomeBatch --dry-run
 ```
+
+</details>
 
 ---
 
@@ -127,6 +140,8 @@ Converts H.264, MPEG-2 and AVCHD to H.265 for archival. Files already in an effi
 | `--preset NAME` | x265 preset, default `slow` |
 | `--force-software` | Force `libx265` rather than letting VideoToolbox take clean footage |
 
+<details>
+
 **`--avchd-only` matters when the source is an archive.** Without it the scan takes every video extension, including MP4s that `organize_archive.py` already imported. It cannot recognize those, because that import path does not write to the conversion index — so it would cheerfully write H.265 duplicates alongside copies you already have. Pointed at the home-movies share, that was the difference between 1,368 files and the correct 669.
 
 **Encoding settings:** CRF 26, preset `slow`, AAC 192k audio. CRF started at 20 and was raised because 20 produced bloated files for no visible benefit. Encoder selection is automatic — VideoToolbox for clean footage, `libx265` for noisy, since hardware encoding handles grain poorly.
@@ -136,6 +151,8 @@ Converts H.264, MPEG-2 and AVCHD to H.265 for archival. Files already in an effi
 **Deduplication survives across sources.** The conversion index keys on the original's recording date and byte size rather than its filename, because camcorder filenames restart at `00000.MTS` on every card and mean nothing across them. It is written per conversion, so an interrupted batch loses one file rather than the run.
 
 **Time:** roughly 4–7 GB of source per hour depending on how much lands on software encoding. `--dry-run` gives an estimate up front.
+
+</details>
 
 ---
 
@@ -153,6 +170,8 @@ Finds blurry photos and duplicates, and produces two HTML pages for making decis
 | `--no-duplicates` | Skip duplicate scanning (faster) |
 | `--skip-cache` | Skip cache warm-up when it is already populated |
 
+<details>
+
 Three steps: warm the blur and hash caches, build `_review_issues.html` (problems only), build `_browse_all.html` (everything, by folder). Both land at the root of `Organized_Photos/`.
 
 **The review page groups by problem** — blurry photos with a sharp alternative nearby, exact duplicates, and perceptually similar sets. Keeper selection prefers a file outside the review areas, then higher pixel count for perceptually similar groups, then the earliest EXIF date, then larger size, then the shorter filename. Spacebar toggles keep/remove in the lightbox; arrow keys move between photos.
@@ -168,6 +187,8 @@ Three steps: warm the blur and hash caches, build `_review_issues.html` (problem
 ```
 
 > **Known limitation.** Keep/remove decisions live in browser `localStorage`, keyed by path, so importing files or re-running event folders orphans them. Removal decisions are durable via the exported scripts; **keep** decisions are not. Finish importing and cataloguing before investing hours in review.
+
+</details>
 
 ---
 
@@ -187,6 +208,8 @@ Maintenance for media that is already organized. Menu-driven.
 | Fix motion photos | Pixel dual-stream files QuickLook cannot play — extract the still, drop the video, or make it playable |
 | Create event folders | Groups photos into named holiday, birthday and dense-day event folders |
 
+<details>
+
 ### Event folders
 
 Worth understanding, since it moves a lot of files.
@@ -202,6 +225,8 @@ Two passes. **Named events** first — configured birthdays, Fourth of July, Hal
 Only direct children of month folders are candidates, so anything already filed is left alone. Loose photos belonging to a day that already has an event folder are adopted into it regardless of the threshold, which is what stops a later import stranding a handful of photos beside the folder they belong in. Cache entries travel with moved files, so no re-analysis is needed.
 
 `--event-threshold N` tunes cluster detection; `0` disables discovery but not adoption.
+
+</details>
 
 ---
 

@@ -19,7 +19,10 @@ imported, the intact original may already be gone.
 Detection method per type:
     images  full decode, not just a header read. A header read reports dimensions
             happily on a file missing most of its data.
-    videos  ffprobe, which reports errors on truncated containers
+    videos  ffprobe on the container by default; --deep fully decodes the stream.
+            The container alone cannot see mid-stream damage: five AVCHD files
+            reported clean durations while carrying 46-244 decode errors, and lost
+            footage when transcoded.
     other   size only; arbitrary formats cannot be validated generically
 
 Read-only. Never moves, deletes, or repairs anything.
@@ -121,13 +124,37 @@ def check_image(path):
     return 'ok', ''
 
 
+# What ffprobe should call each container. A file whose detected format is not in this
+# set is not the kind of file its name claims, which is a different and worse problem
+# than being damaged: the original content is simply absent.
+EXPECTED_CONTAINERS = {
+    '.mts': {'mpegts'},
+    '.m2ts': {'mpegts'},
+    '.m2t': {'mpegts'},
+    '.ts': {'mpegts'},
+    '.mp4': {'mov,mp4,m4a,3gp,3g2,mj2'},
+    '.m4v': {'mov,mp4,m4a,3gp,3g2,mj2', 'm4v'},
+    '.mov': {'mov,mp4,m4a,3gp,3g2,mj2'},
+    '.3gp': {'mov,mp4,m4a,3gp,3g2,mj2'},
+    '.avi': {'avi'},
+    '.mpg': {'mpeg', 'mpegvideo'},
+    '.mpeg': {'mpeg', 'mpegvideo'},
+    '.wmv': {'asf'},
+    '.mkv': {'matroska,webm'},
+    '.webm': {'matroska,webm'},
+    '.flv': {'flv'},
+}
+
+
 def check_video(path):
     """
-    Probe a video container for structural errors.
+    Probe a video container for structural errors, and for not being a video at all.
 
-    ffprobe writes diagnostics to stderr for truncated or malformed files even when
-    it manages to report a duration, so stderr is inspected rather than trusted to
-    be empty on success.
+    ffprobe writes diagnostics to stderr for truncated or malformed files even when it manages to report a duration, so stderr is inspected rather than trusted to be empty on success.
+
+    Beyond damage, this now verifies the file is the kind of thing its name claims. That gap let eight files pass as healthy home movies when they contained no video whatsoever: 2010/00033.MTS is 94 MB of MP3 audio, and ffprobe reports it as a valid 2,959-second mp3 stream. Asking only "does this decode" gets the answer "yes, beautifully", because it is a perfectly intact file of the wrong content. A missing video stream, or a container that disagrees with the extension, means the footage is gone rather than degraded — and no transcode can recover it.
+
+    NOTE: this reads the CONTAINER, not the stream, so it cannot see mid-stream decode damage. Use check_video_deep() when the answer matters — five AVCHD files passed this check with clean durations while carrying 46 to 244 mid-stream H.264 errors, and lost footage when transcoded. For foreign data spliced into an otherwise valid stream, use detect_splices.py.
 
     Args:
         path: Path to a video file
@@ -139,8 +166,9 @@ def check_video(path):
         completed = subprocess.run(
             [
                 'ffprobe', '-v', 'error',
-                '-show_entries', 'format=duration',
-                '-of', 'csv=p=0',
+                '-show_entries', 'format=duration,format_name',
+                '-show_entries', 'stream=codec_type',
+                '-of', 'json',
                 str(path),
             ],
             capture_output=True, text=True, check=False, timeout=120
@@ -157,12 +185,107 @@ def check_video(path):
     if completed.returncode != 0:
         return 'unreadable', stderr[:200] or f"ffprobe exit {completed.returncode}"
 
+    try:
+        probe = json.loads(completed.stdout or '{}')
+    except json.JSONDecodeError:
+        return 'unreadable', 'ffprobe returned unparseable output'
+
+    container = probe.get('format', {})
+    streams = probe.get('streams') or []
+    duration = container.get('duration')
+
     if stderr:
         # Errors surfaced despite a zero exit — typically truncated moov atoms
         return 'suspect', stderr[:200]
 
-    if not completed.stdout.strip():
+    # Content substitution: the file is intact, but it is not a video.
+    stream_types = {stream.get('codec_type') for stream in streams}
+
+    if streams and 'video' not in stream_types:
+        present = ', '.join(sorted(kind for kind in stream_types if kind)) or 'none'
+        return 'not a video', (f"no video stream; contains {present} only "
+                               f"(detected as {container.get('format_name', '?')})")
+
+    expected = EXPECTED_CONTAINERS.get(path.suffix.lower())
+    detected = container.get('format_name')
+
+    if expected and detected and detected not in expected:
+        return 'wrong container', (f"detected as {detected}, expected "
+                                   f"{'/'.join(sorted(expected))} for "
+                                   f"{path.suffix.lower()}")
+
+    if not duration:
         return 'unreadable', 'no duration reported'
+
+    return 'ok', ''
+
+
+def _is_muxer_noise(line):
+    """
+    Report whether an ffmpeg stderr line is an artifact of how we invoke it.
+
+    Decoding to `-f null -` still runs an output muxer, and that muxer complains about
+    timestamps it dislikes. Those complaints describe our command, not the file.
+
+    This matters because counting them made the check useless: a first pass over the
+    archive flagged 325 files, and 323 of them were this one warning. A checker that
+    reports 11.5% of a healthy archive as damaged just teaches you to ignore it.
+
+    Args:
+        line: One line of ffmpeg stderr
+
+    Returns:
+        bool: True when the line should not count as evidence of damage
+    """
+    # The null muxer used by our own -f null output
+    if line.lstrip().startswith('[null @'):
+        return True
+
+    # Emitted with no component prefix in some builds
+    if 'non monotonic' in line or 'Non-monotonous DTS' in line:
+        return True
+
+    return False
+
+
+def check_video_deep(path):
+    """
+    Decode a video's entire stream and count the errors it produces.
+
+    A container probe is not sufficient, and the gap is not theoretical. Five AVCHD files passed `check_video()` reporting clean durations while carrying 46 to 244 mid-stream H.264 errors. When transcoded, ffmpeg decoded until it hit an unrecoverable error and then stopped — producing short but structurally valid output and exiting zero. One clip lost 72 of its 103 seconds, and nothing noticed until source and output durations were compared.
+
+    Images have always been fully decoded here for exactly this reason. This brings video to the same standard, at the cost of real decode time, so it is opt-in rather than the default.
+
+    Args:
+        path: Path to a video file
+
+    Returns:
+        tuple (status, detail)
+    """
+    try:
+        completed = subprocess.run(
+            ['ffmpeg', '-v', 'error', '-i', str(path), '-f', 'null', '-'],
+            capture_output=True, text=True, check=False, timeout=1800
+        )
+
+    except FileNotFoundError:
+        return 'skipped', 'ffmpeg not installed'
+
+    except subprocess.TimeoutExpired:
+        return 'unreadable', 'decode timed out'
+
+    errors = [
+        line for line in completed.stderr.split('\n')
+        if line.strip() and not _is_muxer_noise(line)
+    ]
+
+    if completed.returncode != 0:
+        detail = errors[0] if errors else f'ffmpeg exit {completed.returncode}'
+        return 'unreadable', detail[:200]
+
+    if errors:
+        # Reached the end, but not cleanly. A transcode of this will lose footage.
+        return 'stream errors', f"{len(errors)} decode errors; first: {errors[0][:110]}"
 
     return 'ok', ''
 
@@ -236,12 +359,13 @@ def check_pdf(path):
     return 'ok', ''
 
 
-def check_file(path):
+def check_file(path, deep=False):
     """
     Dispatch a single file to the appropriate integrity check.
 
     Args:
         path: Path to check
+        deep: Fully decode video rather than probing its container
 
     Returns:
         tuple (path, status, detail)
@@ -266,7 +390,7 @@ def check_file(path):
         status, detail = check_image(path)
     elif suffix in {extension.lower() for extension in VIDEO_EXTENSIONS} \
             or suffix in EXTRA_VIDEO_SUFFIXES:
-        status, detail = check_video(path)
+        status, detail = check_video_deep(path) if deep else check_video(path)
     elif suffix in ZIP_FAMILY_SUFFIXES:
         status, detail = check_zip_family(path)
     elif suffix in PDF_SUFFIXES:
@@ -299,7 +423,8 @@ Statuses:
   truncated    the file is short -- data is missing from the end
   empty        zero bytes
   unreadable   could not be decoded at all
-  suspect      probed with warnings (videos)
+  suspect        probed with warnings (videos)
+  stream errors  decoded to the end but with errors; a transcode will lose footage
   corrupt      CRC mismatch inside a zip-based file -- bytes have changed
   not_checked  format cannot be validated generically
         """
@@ -309,6 +434,16 @@ Statuses:
         '--output', metavar='PATH',
         help="Write the list of damaged files to this JSON file"
     )
+    parser.add_argument(
+        '--deep', action='store_true',
+        help=(
+            "Fully decode video instead of probing its container. Far slower, and the only "
+            "way to see mid-stream damage: five files passed the fast check with clean "
+            "durations while carrying up to 244 decode errors, then lost footage when "
+            "transcoded. Use before trusting a transcode as authoritative."
+        )
+    )
+
     parser.add_argument(
         '--workers', type=int, default=DEFAULT_WORKERS,
         help=f"Parallel workers (default: {DEFAULT_WORKERS})"
@@ -331,7 +466,7 @@ Statuses:
     completed_count = 0
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = {executor.submit(check_file, path): path for path in files}
+        futures = {executor.submit(check_file, path, args.deep): path for path in files}
 
         for future in as_completed(futures):
             path, status, detail = future.result()
