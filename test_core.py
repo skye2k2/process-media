@@ -3726,6 +3726,41 @@ class TestSpliceAttribution(unittest.TestCase):
 
 
 # ============================================================================
+# 10. MOVE_FILE_SAFELY WITHOUT PERSON TAGGING (organize_media.py)
+# ============================================================================
+
+class TestMoveFileSafelyWithoutPerson(unittest.TestCase):
+    """
+    Regression: with no --person, line 557's eager ['_' + PERSON_NAME] raised
+    TypeError before the comprehension's guard could apply — organize_media
+    crashed on the first file of any personless run (found 2026-10-22 during
+    the family-history import, the first import run without a person name).
+    """
+
+    def test_move_succeeds_when_person_name_is_none(self):
+        from PIL import Image
+
+        import organize_media
+
+        original_person = organize_media.PERSON_NAME
+        organize_media.PERSON_NAME = None
+        try:
+            with tempfile.TemporaryDirectory() as root:
+                src = Path(root) / "scan-001.jpg"
+                Image.new("RGB", (4, 4)).save(src)
+                dst_dir = Path(root) / "dest"
+                dst_dir.mkdir()
+
+                success, moved = organize_media.move_file_safely(src, dst_dir)
+
+                self.assertTrue(success)
+                self.assertEqual(moved, dst_dir / "scan-001.jpg")
+                self.assertFalse(src.exists())
+        finally:
+            organize_media.PERSON_NAME = original_person
+
+
+# ============================================================================
 # RUNNER
 # ============================================================================
 

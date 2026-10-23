@@ -86,6 +86,16 @@ Prompts for the person's name, then in order: repairs truncated extensions (`.MP
 .venv/bin/python cleanup_orphaned_json.py --yes         # drop sidecars whose media is gone
 ```
 
+**Scanned-photo takeouts run a routing pre-pass first.** A takeout holding scans of physical photos must not be filed by `photoTakenTime` — for scans that is the scan date, not the depicted era. Run the router BEFORE the workflow; it classifies every file in the standard year albums and moves only what the workflow would misfile:
+
+```bash
+.venv/bin/python route_family_scans.py --input-dir "TO_PROCESS/<takeout>" \
+    --person "Clifford Bergmann" --dry-run    # then again without --dry-run
+.venv/bin/python workflow_takeout.py          # person prompt left EMPTY for family takeouts
+```
+
+Conventions the router establishes (details in `docs/superpowers/specs/2026-10-21-family-history-import-and-backup-design.md`): a real pre-2013 sidecar date files normally; a filename year (`1980-youth-065.jpg`, `~1960 Eugen.jpg`) lands in `YYYY/00 Circa/` dated Jan 1 with a `date-estimated` keyword; no recoverable date lands in `Organized_Photos/_FAMILY_HISTORY_/<batch>/` awaiting human dating. Person identity is embedded metadata (`PersonInImage` + `Subject` + `Keywords`, never `Artist`), not a filename suffix. One known trap: extract the takeout so `Takeout*/` sits directly under the input dir you pass — project-folder (album) handling only looks one level down. (A second trap, now guarded in the router itself: Google's year view duplicates backdated album photos into scan-year albums, and the router deletes those identical twins rather than moving them, so the archive's name dedupe cannot discard the correctly dated copy.)
+
 </details>
 
 ---
@@ -230,10 +240,25 @@ Only direct children of month folders are candidates, so anything already filed 
 
 ---
 
+## Backup
+
+The archive's backup is the external APFS drive `MEDIA_BACKUP`. The backup set is the **non-git-protected data** — `Organized_Photos/`, `Organized_Videos/`, `TO_PROCESS/`, `_RESCUED/`, `_records/`, and the analysis caches; code and docs are the GitHub remote's job, so they are deliberately not duplicated here. Each sync writes a dated, fully browsable tree under `/Volumes/MEDIA_BACKUP/process-media/snapshots/` that hard-links unchanged files from the previous one (rsync `--link-dest` — macOS cannot create APFS snapshots on a non-boot volume), so prior states survive curation mistakes at near-zero space cost; `current` always points at the latest.
+
+```bash
+.venv/bin/python backup_archive.py sync      # version, then mirror the repo root
+.venv/bin/python backup_archive.py verify    # full md5-manifest comparison, both sides
+```
+
+Re-sync after every curation milestone, and never trust a sync that has not been verified — `verify` reads every byte on both sides and writes the manifest to the drive. `reconcile_quicksave.py` is the related one-off gate that proved the old Desktop copy fully represented before its deletion (`_records/reconcile-quicksave-2026-10-22.txt`).
+
+---
+
 ## Roadmap and known issues
 
 Live work — in flight, queued, decisions needed, open concerns — is in **[NEXT.md](NEXT.md)**.
 
-**[CHANGELOG.md](CHANGELOG.md)** is the permanent record of what changed and why, including the measurements behind each decision and the approaches that were tried and rejected. Worth reading before re-deriving anything: perceptual hashing cannot verify a duplicate match, duration alone cannot match videos, and mtime is 88% reliable as a date source.
+**[DECISIONS.md](DECISIONS.md)** is the clean map of standing conventions and measured lessons — read it before re-deriving anything (perceptual hashing cannot verify a duplicate match, duration alone cannot match videos, mtime is 88% reliable as a date source, and the rest).
+
+**[CHANGELOG.md](CHANGELOG.md)** is the permanent chronological record of what changed and why, including the measurements behind each decision and the approaches that were tried and rejected. The August 2026 video-recovery findings are consolidated in [`_records/video-recovery-history.md`](_records/video-recovery-history.md).
 
 **[SCRIPTS.md](SCRIPTS.md)** itemizes purpose and usage of all worker scripts.

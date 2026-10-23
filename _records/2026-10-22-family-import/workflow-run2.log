@@ -1,0 +1,1293 @@
+
+================================================================================
+Google Takeout Master Processing Script
+================================================================================
+
+This script will:
+  1. Fix truncated file extensions (e.g., .MP -> .mp4)
+  2. Organize photos/videos by date (deleting duplicates from project folders)
+  3. Reunite fractured project directories (move media to project folders)
+  4. Clean up orphaned JSON metadata files
+  5. Merge remaining JSON metadata into EXIF data (review files only)
+
+================================================================================
+
+Enter person's name for this import (or press Enter to skip person tagging): 
+Processing photos without person tagging
+
+Ready to proceed? (Y/n): 
+================================================================================
+Fix Truncated Extensions in Google Takeout
+================================================================================
+
+Directory: TO_PROCESS
+Dry run: False
+Mode: Comprehensive (all media files)
+
+
+================================================================================
+Scanning for truncated file extensions...
+================================================================================
+
+Checking all potential media files for correct extensions...
+
+
+================================================================================
+SUMMARY
+================================================================================
+
+Files checked: 0
+Files renamed: 0
+Files already correct: 0
+Failed: 0
+
+================================================================================
+
+
+================================================================================
+Google Takeout Photo Organization Script
+================================================================================
+
+Input directory: /Users/skye2k2/sandbox/repositories/personal/process-media/TO_PROCESS
+
+Photos output directory: /Users/skye2k2/sandbox/repositories/personal/process-media/Organized_Photos
+Videos output directory: /Users/skye2k2/sandbox/repositories/personal/process-media/Organized_Videos
+
+
+Moving Trash directories to _TO_REVIEW_ for final review...
+
+================================================================================
+PASS 1: Processing Project Folders
+================================================================================
+
+Tracked 0 unique media files from project folders
+
+================================================================================
+PASS 2: Processing Regular Files
+================================================================================
+Building file index for fast lookups...
+  Indexed 41632 files with 41575 unique base names
+
+Processing raw media files from: /Users/skye2k2/sandbox/repositories/personal/process-media/TO_PROCESS
+  Moved video: thebergmannfamily google takeout/VID_20240520_192913753_HL.mp4 -> 2024/05 May
+  Moved photo: thebergmannfamily google takeout/Family-40.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-80.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-57.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Family-43.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-52.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Family-51.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-50.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-22.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Family-20.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Family-9.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-8.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-5.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-16.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-4.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Family-6.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Family-3.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Family-11.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-39.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-61.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Family-75.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-49.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Family-48.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-74.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-60.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Family-76.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Family-77.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Family-72.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Family-71.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Family-65.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Family-59.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/original_9b5944f7-f08e-4261-887a-14a5f8cd99d9_IMG_20240520_192209326-edited.jpg -> 2024/05 May
+  Moved photo: thebergmannfamily google takeout/IMG_20240520_192549033.jpg -> 2024/05 May
+  Moved photo: thebergmannfamily google takeout/IMG_20240520_191748475.jpg -> 2024/05 May
+  Moved photo: thebergmannfamily google takeout/original_b6944c66-8eb7-4332-bc28-29eacc8c2197_IMG_20240520_192348381.jpg -> 2024/05 May
+  Moved photo: thebergmannfamily google takeout/original_e99dda85-4aca-4847-89e7-77b652efbe6c_IMG_20240520_191823268.jpg -> 2024/05 May
+  Moved photo: thebergmannfamily google takeout/FullParty-44.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-57.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230106_151048127.jpg
+  Moved photo: thebergmannfamily google takeout/Groomsmen-7.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Groomsmen-27.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_150557150.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_150542575.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152444219.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152435999.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152357559.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-50.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152106382.jpg
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-50.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyB-3.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/IMG_20230421_172314861.jpg -> 2023/04 April
+  Moved photo: thebergmannfamily google takeout/CeremonyA-38.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_151414899.jpg
+  Moved photo: thebergmannfamily google takeout/ReceptionA-77.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_145607731.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_150533517.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_145521206.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-9.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152055579.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_150529982.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_151345136.jpg
+  Moved photo: thebergmannfamily google takeout/CeremonyB-7.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152455386.jpg
+  Moved photo: thebergmannfamily google takeout/CeremonyA-25.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-19.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_145549765.jpg
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-29.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152433983.jpg
+  Moved photo: thebergmannfamily google takeout/CeremonyB-8.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/Family-3.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152050998.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_145533232.jpg
+  Moved photo: thebergmannfamily google takeout/FullParty-17.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_150550332.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_151418004.jpg
+  Moved photo: thebergmannfamily google takeout/CeremonyA-52.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/IMG_20230422_104510660.jpg -> 2023/04 April
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_151401740.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_150537680.jpg
+  Moved photo: thebergmannfamily google takeout/GettingReady-55.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-67.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-4.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152045845.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152614500.jpg
+  Moved photo: thebergmannfamily google takeout/GettingReady-52.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220117_112019121_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220212_095259456_BURST001.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220206_183111352_BURST000_COVER_TOP.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220212_111258233.jpg
+  Moved photo: thebergmannfamily google takeout/2004-03-15 ChuckECheese.jpg -> 2004/03 March
+  Moved photo: thebergmannfamily google takeout/2004-01-30 ChuckECheese.jpg -> 2004/01 January
+  Moved photo: thebergmannfamily google takeout/2007-04-05 ChuckECheese.jpg -> 2007/04 April
+  Moved photo: thebergmannfamily google takeout/_2007-06-21-Nicole ChuckECheese.jpg -> 2007/06 June
+  Moved photo: thebergmannfamily google takeout/2008-03-24 ChuckECheese.jpg -> 2008/03 March
+  Moved photo: thebergmannfamily google takeout/2007-06-21 ChuckECheese.jpg -> 2007/06 June
+  Moved photo: thebergmannfamily google takeout/2011-02-18 ChuckECheese.jpg -> 2011/02 February
+  Moved photo: thebergmannfamily google takeout/2008-02-15 ChuckECheese.jpg -> 2008/02 February
+  Moved photo: thebergmannfamily google takeout/2004-05-14 ChuckECheese.jpg -> 2004/05 May
+  Moved photo: thebergmannfamily google takeout/_2007-06-21-Clif ChuckECheese.jpg -> 2007/06 June
+  Moved photo: thebergmannfamily google takeout/2009-08-28 ChuckECheese.jpg -> 2009/08 August
+  Moved photo: thebergmannfamily google takeout/2006-02-09 ChuckECheese.jpg -> 2006/02 February
+  Moved photo: thebergmannfamily google takeout/2009-10-19 ChuckECheese.jpg -> 2009/10 October
+  Moved photo: thebergmannfamily google takeout/2005-11-22 ChuckECheese.jpg -> 2005/11 November
+  Moved photo: thebergmannfamily google takeout/2007-01-29 ChuckECheese.jpg -> 2007/01 January
+  Moved photo: thebergmannfamily google takeout/2007-11-26 ChuckECheese.jpg -> 2007/11 November
+  Moved photo: thebergmannfamily google takeout/2007-06-09 ChuckECheese.jpg -> 2007/06 June
+  Moved photo: thebergmannfamily google takeout/2003-11-17 ChuckECheese.jpg -> 2003/11 November
+  Moved photo: thebergmannfamily google takeout/2003-09-03 ChuckECheese.jpg -> 2003/09 September
+  Moved photo: thebergmannfamily google takeout/2006-07-07 ChuckECheese.jpg -> 2006/07 July
+  Moved photo: thebergmannfamily google takeout/2008-08-02 ChuckECheese.jpg -> 2008/08 August
+  Moved photo: thebergmannfamily google takeout/_2003-11-17-Calvin ChuckECheese.jpg -> 2003/11 November
+  Moved photo: thebergmannfamily google takeout/2004-11-26 ChuckECheese.jpg -> 2004/11 November
+  Moved photo: thebergmannfamily google takeout/2005-01-17 ChuckECheese.jpg -> 2005/01 January
+  Moved photo: thebergmannfamily google takeout/2010-11-05 ChuckECheese.jpg -> 2010/11 November
+  Moved photo: thebergmannfamily google takeout/2009-01-19 ChuckECheese.jpg -> 2009/01 January
+  Moved photo: thebergmannfamily google takeout/Portraits-55.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Portraits-41.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Portraits-80.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Portraits-133.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Portraits-127.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Portraits-23.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Portraits-22.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Portraits-192.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Portraits-169.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Portraits-181.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Portraits-33.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Portraits-207.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Portraits-13.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Portraits-1.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Portraits-76.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Portraits-5.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-83.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/FullParty-50.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/FullParty-44.jpg
+  Moved photo: thebergmannfamily google takeout/Groomsmen-5.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-57.jpg
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-9.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-52.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/Groomsmen-27.jpg
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-85.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Groomsmen-2.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-90.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-45.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-86.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Groomsmen-1.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-50.jpg
+  Moved photo: thebergmannfamily google takeout/FullParty-26.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/FullParty-32.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-21.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-25.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-19.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/FullParty-21.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/FullParty-34.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-24.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/FullParty-8.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-27.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/FullParty-4.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/FullParty-12.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-17.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Groomsmen-48.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-29.jpg
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-15.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/FullParty-15.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Skipped (exists): thebergmannfamily google takeout/FullParty-17.jpg
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-49.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-75.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-62.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/Groomsmen-16.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-67.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-4.jpg
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-114.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-64.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-58.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Groomsmen-38.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-65.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211016_144930069_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210825_182842063_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210702_214939572.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211215_125039957_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210615_181021233_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210612_155549015.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211231_144047032_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210925_172528476.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211231_152709047_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210913_075022866.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210706_144358023_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210605_120925289.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210630_155038270_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210809_152013625.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211215_225235233_PORTRAIT.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210621_192306293.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211016_145210171_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210708_143456918_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210708_122613359_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210712_162152376_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211222_155022011.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210723_131154918_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210701_182801873_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210615_183157742.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210727_143217269_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210423_221756784.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210925_182610563_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210925_171638764.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210630_152636866_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210905_112238548_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211113_195947473.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210920_185920990_HDR.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20210710_170657566~2.jpg -> 2021/07 July
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210617_192211017_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210810_114352008_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210529_160615884_HDR.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20210616_191918207_BURST001.jpg -> 2021/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210608_132440429.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210505_193957960_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210603_110404274_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211030_191015913.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210608_192730517.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210708_205657138_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210616_113121875.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210526_134449664.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210621_190256998.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210616_135205103.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210621_193147010.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210616_142505753_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210605_093735932_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210617_143052413_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210616_113344363.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211124_113429126.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210923_190109036_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210606_212045166.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210615_154129749_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210825_190819543_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210621_103713049_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/VID_20211013_185446100.mp4
+  Moved photo: thebergmannfamily google takeout/IMG_20210605_093055465_HDR.jpg -> 2021/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210608_191057962.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211215_141805165_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210817_074847637_BURST000_COVER_TOP.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210724_114017701_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210611_152432539.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210810_121549614.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20211120_172936972.jpg -> 2021/11 November
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211016_143624945_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211224_182142076.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210911_195208008.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210724_105420248_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210701_092935863.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210911_142554947.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210810_114133685_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210621_192631335.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210802_124207255.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210621_162606467.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210911_153319047_BURST000_COVER_TOP.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210713_120844637_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211030_190953446.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211014_130322718.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210626_184437034.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210729_123844088_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210706_172653351_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210724_104608296_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211229_095102722.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211029_075437967.jpg
+  Skipped (exists): thebergmannfamily google takeout/VID_20210920_185933201.mp4
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210724_104225767_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210809_161052394.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210603_174034509_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210803_150304028.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210810_122055852_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210630_130414447.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211124_123458716.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210603_174934681_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210727_154316501_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210608_163620032.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210509_200457749.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210925_172513931.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210608_192231321.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210603_174036343_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210703_171912899_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210621_193011826.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20211218_195153827.jpg -> 2021/12 December
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210810_132218199_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211223_160005594.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210524_094114540_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210505_192602147_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210604_124318063.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210708_163101198_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211231_143249225.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210723_133838272_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210911_201101204.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210723_143202311_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210704_221015322.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210810_121038362_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210601_145942466_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210606_180118807.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210817_075314341_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211231_151133174_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210724_115650473_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210621_192945338.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211013_185421043.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20210724_115650473_HDR~2.jpg -> 2021/07 July
+  Moved photo: thebergmannfamily google takeout/IMG_20210810_114352008_HDR~2.jpg -> 2021/08 August
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211003_184038621.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210723_131228133_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211210_200610495.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210701_121706752.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210611_121120288_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210615_130518320_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210812_172226069.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211016_133038657_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210615_124653117_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210925_171637205.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210608_164313652.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210803_150648156.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210708_132051441.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210508_150705356.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211030_203036485.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210710_170657566.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210617_110516472_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210803_150302423.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210809_161256483.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20210812_140341237_HDR~2.jpg -> 2021/08 August
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210727_144020873_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210502_160501971.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210812_140341237_HDR.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20210809_161256483~2.jpg -> 2021/08 August
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210803_134737463_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210621_192046371_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210608_134024193.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210428_135233937.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210615_124236298_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211014_122400560.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210502_160436477.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210611_135254150.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210627_183624298_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210605_120803119.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210610_111033786_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210816_200308401.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210615_213500189.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20211023_215811717.jpg -> 2021/10 October
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210617_101948513.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210723_120427056_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210817_103301842_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210803_162342316.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210629_112243182_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210606_175915966_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210813_113838175_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210616_113403974.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210615_123354778_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210608_164309871.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210701_141651107_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210920_181252703_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210810_121515059.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210701_112551826.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210812_140350473_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210603_180706239~2.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210608_193110230.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211203_155519002.jpg
+  Skipped (exists): thebergmannfamily google takeout/VID_20210508_115856616.mp4
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210621_191005652.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211026_223117453.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210615_122437058.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210508_131739635_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211030_180453632.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211016_150027049.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210612_194652169_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210603_180630258~2.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211205_174035474.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211023_190005767.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210810_132430842_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211016_161550924.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210608_161506519.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210621_191453227.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210627_200555027_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211023_132937833.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20211030_203036485~2.jpg -> 2021/10 October
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210608_155947227.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210825_182747492_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210724_104312615.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20210621_111431739.jpg
+  Moved photo: thebergmannfamily google takeout/GettingReady-9.jpg -> 2022/12 December (Using earlier date: 2022-12-24 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/GettingReady-8.jpg -> 2022/12 December (Using existing EXIF date: 2022-12-24)
+  Moved photo: thebergmannfamily google takeout/GettingReady-29.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/GettingReady-28.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/GettingReady-10.jpg -> 2022/12 December (Using existing EXIF date: 2022-12-24)
+  Moved photo: thebergmannfamily google takeout/GettingReady-22.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/GettingReady-32.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/GettingReady-24.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/GettingReady-42.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/GettingReady-56.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/GettingReady-54.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Skipped (exists): thebergmannfamily google takeout/GettingReady-55.jpg
+  Moved photo: thebergmannfamily google takeout/GettingReady-51.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/GettingReady-52.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_133425520.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_141003046.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_133829539_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_132650875_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_134730790_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_140636361.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230830_195740116.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_141036268_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_132953878.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_141419872_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_135654677.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_135914847_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_142737523_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_135746710_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_135353351_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_134322822.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_133238978_BURST000_COVER_TOP.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_132731928.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_141414228_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_132952267.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_142015625.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_135052844_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_135744581.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_133025098_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_134210974_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_133057428_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_133235412.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_134344401_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_135045253_HDR.jpg
+  Moved photo: thebergmannfamily google takeout/Family-62.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-66.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyB-36.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/CeremonyC-1.jpg -> 2022/12 December (Using existing EXIF date: 2022-12-24)
+  Moved photo: thebergmannfamily google takeout/CeremonyC-3.jpg -> 2022/12 December (Using earlier date: 2022-12-24 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/CeremonyA-60.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-74.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-88.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyC-4.jpg -> 2022/12 December (Using earlier date: 2022-12-24 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/CeremonyA-89.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/CeremonyB-3.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-38.jpg
+  Moved photo: thebergmannfamily google takeout/CeremonyB-5.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/CeremonyB-7.jpg
+  Moved photo: thebergmannfamily google takeout/CeremonyA-24.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-25.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-19.jpg
+  Moved photo: thebergmannfamily google takeout/CeremonyB-9.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-27.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-26.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/CeremonyB-8.jpg
+  Moved photo: thebergmannfamily google takeout/CeremonyA-22.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-23.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-21.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-20.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-84.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyB-17.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-52.jpg
+  Moved photo: thebergmannfamily google takeout/CeremonyA-85.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-87.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-9.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-86.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-55.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyB-10.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-40.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-83.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/CeremonyA-80.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionB-87.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionB-79.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionB-53.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionB-43.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionA-131.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionB-82.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/ReceptionB-54.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionA-126.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Skipped (exists): thebergmannfamily google takeout/ReceptionA-77.jpg
+  Moved photo: thebergmannfamily google takeout/ReceptionA-74.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionA-95.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionA-4.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionA-40.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionA-51.jpg -> 2023/06 June (Using earlier date: 2023-06-04 (later: 2023-09-19))
+  Moved photo: thebergmannfamily google takeout/ReceptionA-86.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionB-63.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionA-104.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionA-138.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionA-19.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionB-48.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionB-60.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionA-113.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Moved photo: thebergmannfamily google takeout/ReceptionA-30.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/Groomsmen-7.jpg
+  Moved photo: thebergmannfamily google takeout/Bridesmaids-12.jpg -> 2023/06 June (Using existing EXIF date: 2023-06-04)
+  Skipped (exists): thebergmannfamily google takeout/family-079.jpg
+  Moved photo: thebergmannfamily google takeout/1995-family-079.jpg -> 1995/12 December (Using earlier date: 1995-12-01 (later: 2015-04-20))
+  Skipped (exists): thebergmannfamily google takeout/family-068.jpg
+  Moved photo: thebergmannfamily google takeout/PortraitB-009.jpg -> 1966/02 February (Using earlier date: 1966-02-06 (later: 2014-11-11))
+  Moved photo: thebergmannfamily google takeout/original_3c9d1b01-7878-4c0d-a1e8-092f53c01495_IMG_20240520_191937921.jpg -> 2024/05 May
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240520_192549033.jpg
+  Moved photo: thebergmannfamily google takeout/original_3c9d1b01-7878-4c0d-a1e8-092f53c01495_IMG_20240520_191937921-edited.jpg -> 2024/05 May
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240520_191748475.jpg
+  Skipped (exists): thebergmannfamily google takeout/original_b6944c66-8eb7-4332-bc28-29eacc8c2197_IMG_20240520_192348381.jpg
+  Moved photo: thebergmannfamily google takeout/original_b6944c66-8eb7-4332-bc28-29eacc8c2197_IMG_20240520_192348381-edited.jpg -> 2024/05 May
+  Moved photo: thebergmannfamily google takeout/IMG_20240520_191838652.jpg -> 2024/05 May
+  Moved photo: thebergmannfamily google takeout/original_e99dda85-4aca-4847-89e7-77b652efbe6c_IMG_20240520_191823268-edited.jpg -> 2024/05 May
+  Skipped (exists): thebergmannfamily google takeout/original_e99dda85-4aca-4847-89e7-77b652efbe6c_IMG_20240520_191823268.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240520_192700120.jpg -> 2024/05 May
+  Moved photo: thebergmannfamily google takeout/youthD-106.jpg -> 1969/12 December (Using earlier date: 1969-12-25 (later: 2014-05-26))
+  Moved photo: thebergmannfamily google takeout/youthD-089.jpg -> 1967/08 August (Using earlier date: 1967-08-02 (later: 2014-05-24))
+  Moved photo: thebergmannfamily google takeout/youthD-077.jpg -> 1967/08 August (Using earlier date: 1967-08-02 (later: 2014-05-26))
+  Moved photo: thebergmannfamily google takeout/youthD-084.jpg -> 1967/08 August (Using earlier date: 1967-08-02 (later: 2014-05-26))
+  Moved photo: thebergmannfamily google takeout/youthD-086.jpg -> 1967/08 August (Using earlier date: 1967-08-02 (later: 2014-05-26))
+  Moved photo: thebergmannfamily google takeout/youthD-036.jpg -> 1967/12 December (Using earlier date: 1967-12-02 (later: 2014-05-24))
+  Moved photo: thebergmannfamily google takeout/youthD-035.jpg -> 1967/12 December (Using earlier date: 1967-12-02 (later: 2014-05-24))
+  Moved photo: thebergmannfamily google takeout/youthD-033.jpg -> 1967/09 September (Using earlier date: 1967-09-02 (later: 2014-05-24))
+  Skipped (exists): thebergmannfamily google takeout/family-087.jpg
+  Skipped (exists): thebergmannfamily google takeout/family-086.jpg
+  Moved photo: thebergmannfamily google takeout/2009-IMG_1859.JPG -> 2009/07 July (Using earlier date: 2009-07-17 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2009-IMG_1860.JPG -> 2009/07 July (Using earlier date: 2009-07-17 (later: 2015-04-21))
+  Moved photo: thebergmannfamily google takeout/2009-IMG_1863.JPG -> 2009/07 July (Using earlier date: 2009-07-17 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2009-IMG_1369.JPG -> 2009/05 May (Using earlier date: 2009-05-22 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/IMG_1896.JPG -> 2009/07 July (Using earlier date: 2009-07-21 (later: 2014-05-25))
+  Moved photo: thebergmannfamily google takeout/IMG_1884.JPG -> 2009/07 July (Using earlier date: 2009-07-19 (later: 2014-05-25))
+  Moved photo: thebergmannfamily google takeout/2009-IMG_1896.JPG -> 2009/07 July (Using earlier date: 2009-07-21 (later: 2015-04-20))
+  Skipped (exists): thebergmannfamily google takeout/2000-scouts-046.jpg
+  Skipped (exists): thebergmannfamily google takeout/2000-scouts-031.jpg
+  Skipped (exists): thebergmannfamily google takeout/2000-family-132.jpg
+  Skipped (exists): thebergmannfamily google takeout/2000-family-130.jpg
+  Skipped (exists): thebergmannfamily google takeout/2000-scouts-033.jpg
+  Skipped (exists): thebergmannfamily google takeout/2000-family-108.jpg
+  Skipped (exists): thebergmannfamily google takeout/2000-family-135.jpg
+  Skipped (exists): thebergmannfamily google takeout/2000-scouts-008.jpg
+  Skipped (exists): thebergmannfamily google takeout/2000-family-112.jpg
+  Skipped (exists): thebergmannfamily google takeout/2000-scouts-039.jpg
+  Skipped (exists): thebergmannfamily google takeout/2000-family-111.jpg
+  Skipped (exists): thebergmannfamily google takeout/2000-family-101.jpg
+  Skipped (exists): thebergmannfamily google takeout/2000-scouts-059.jpg
+  Skipped (exists): thebergmannfamily google takeout/2000-scouts-089.jpg
+  Skipped (exists): thebergmannfamily google takeout/2001-family-227.jpg
+  Skipped (exists): thebergmannfamily google takeout/2001-scouts-099.jpg
+  Moved photo: thebergmannfamily google takeout/2008-DSCN1882.JPG -> 2008/07 July (Using earlier date: 2008-07-15 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008_Bowling_.JPG -> 2008/07 July (Using earlier date: 2008-07-05 (later: 2014-05-25))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN9370.JPG -> 2008/12 December (Using earlier date: 2008-12-25 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN9360.JPG -> 2008/12 December (Using earlier date: 2008-12-24 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN1887.JPG -> 2008/07 July (Using earlier date: 2008-07-15 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN1878.JPG -> 2008/07 July (Using earlier date: 2008-07-13 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN9305.JPG -> 2008/11 November (Using earlier date: 2008-11-27 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN2132.JPG -> 2008/10 October (Using earlier date: 2008-10-16 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN2279.JPG -> 2008/11 November (Using earlier date: 2008-11-27 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN9338.JPG -> 2008/12 December (Using earlier date: 2008-12-22 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN9304.JPG -> 2008/11 November (Using earlier date: 2008-11-27 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN1809.JPG -> 2008/07 July (Using earlier date: 2008-07-07 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN9298.JPG -> 2008/11 November (Using earlier date: 2008-11-27 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN2332.JPG -> 2008/12 December (Using earlier date: 2008-12-20 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN2083.JPG -> 2008/08 August (Using earlier date: 2008-08-24 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN9314.JPG -> 2008/11 November (Using earlier date: 2008-11-27 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN2080.JPG -> 2008/08 August (Using earlier date: 2008-08-23 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN2081.JPG -> 2008/08 August (Using earlier date: 2008-08-23 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN9318.JPG -> 2008/11 November (Using earlier date: 2008-11-27 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSC_6953.JPG -> 2008/07 July (Using earlier date: 2008-07-14 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN1817.JPG -> 2008/07 July (Using earlier date: 2008-07-07 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN2289.JPG -> 2008/11 November (Using earlier date: 2008-11-28 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN2089.JPG -> 2008/09 September (Using earlier date: 2008-09-04 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN1812.JPG -> 2008/07 July (Using earlier date: 2008-07-07 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN1691.JPG -> 2008/07 July (Using earlier date: 2008-07-04 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008_Family_Visit_Close.JPG -> 2008/07 July (Using earlier date: 2008-07-14 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN1888.JPG -> 2008/07 July (Using earlier date: 2008-07-15 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN9219.JPG -> 2008/09 September (Using earlier date: 2008-09-01 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008_Family_Visit.JPG -> 2008/07 July (Using earlier date: 2008-07-14 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSCN9195.JPG -> 2008/08 August (Using earlier date: 2008-08-19 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2008-DSC_6920.JPG -> 2008/07 July (Using earlier date: 2008-07-14 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2002-June Carina Clifton Calvin.jpg -> 2012/06 June (Using earlier date: 2012-06-04 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/Calvin & Shasta.jpg -> 2012/06 June (Using earlier date: 2012-06-04 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/Clifton and Calvin with Bach.jpg -> 2012/06 June (Using earlier date: 2012-06-04 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/1993-Clifton and Calvin2.jpg -> 2012/06 June (Using earlier date: 2012-06-04 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2001-Clifton Calvin Carina May 22.jpg -> 2012/06 June (Using earlier date: 2012-06-04 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/1999-Lightsaber.jpg -> 2012/06 June (Using earlier date: 2012-06-04 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/1993-Clifton and Calvin.jpg -> 2012/06 June (Using earlier date: 2012-06-04 (later: 2015-04-20))
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_133425520.jpg
+  Skipped (exists): thebergmannfamily google takeout/original_3c9d1b01-7878-4c0d-a1e8-092f53c01495_IMG_20240520_191937921.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240612_160846828.jpg -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_141003046.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_133829539_HDR.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240612_161137946.jpg -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_132650875_HDR.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_142907284.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240611_152757344.jpg -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_134730790_HDR.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240614_163744549.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_132644624_HDR.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240612_161818500.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_141900323.jpg -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_140636361.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_141036268_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_132953878.jpg
+  Moved video: thebergmannfamily google takeout/VID_20240611_200604770.mp4 -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240612_161126654.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_135422927.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_133555107.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_131907372_HDR.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_133428884.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240611_200417909_BURST000_COVER_TOP.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240614_163728624.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_133520558.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240610_162948019.jpg -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_141419872_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_135654677.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240612_162329638_LAYER.jpg -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/original_3c9d1b01-7878-4c0d-a1e8-092f53c01495_IMG_20240520_191937921-edited.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_131916470_HDR.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_133238978_BURST001.jpg -> 2024/06 June
+  Moved video: thebergmannfamily google takeout/VID_20240421_163411793.mp4 -> 2024/04 April
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_135914847_HDR.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240612_160819839.jpg -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_142737523_HDR.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_133544757.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240614_113013503.jpg -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_135746710_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_135353351_HDR.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240614_163750968.jpg -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_134322822.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240611_200403524.jpg -> 2024/06 June
+  Moved video: thebergmannfamily google takeout/VID_20240604_104449115_HL.mp4 -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/VID_20240520_192913753_HL.mp4
+  Moved video: thebergmannfamily google takeout/VID_20240421_164401892.mp4 -> 2024/04 April
+  Moved photo: thebergmannfamily google takeout/IMG_20240614_163715790.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240612_160406030.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_140628978_HDR.jpg -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_133238978_BURST000_COVER_TOP.jpg
+  Moved video: thebergmannfamily google takeout/VID_20240612_141804543.mp4 -> 2024/06 June
+  Moved video: thebergmannfamily google takeout/VID_20240421_163911909.mp4 -> 2024/04 April
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_133523514.jpg -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_132731928.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_141414228_HDR.jpg
+  Moved video: thebergmannfamily google takeout/VID_20240604_104644329.mp4 -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240520_194932707.jpg -> 2024/05 May
+  Moved photo: thebergmannfamily google takeout/IMG_20240520_192340418.jpg -> 2024/05 May
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_132952267.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240613_072545236.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_131909362_HDR.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240612_161708015.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240613_072558106.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240611_200417909_BURST001.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240612_110544261.jpg -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_142015625.jpg
+  Moved video: thebergmannfamily google takeout/VID_20240604_105417374_HL.mp4 -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240612_141634845.jpg -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/original_b6944c66-8eb7-4332-bc28-29eacc8c2197_IMG_20240520_192348381-edited.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_135052844_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240520_191838652.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240614_163724882.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_133635696_HDR.jpg -> 2024/06 June
+  Moved video: thebergmannfamily google takeout/VID_20240604_133612361.mp4 -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_140626802.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_133237215.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/original_9b5944f7-f08e-4261-887a-14a5f8cd99d9_IMG_20240520_192209326.jpg -> 2024/05 May
+  Moved photo: thebergmannfamily google takeout/IMG_20240520_192500822.jpg -> 2024/05 May
+  Skipped (exists): thebergmannfamily google takeout/original_e99dda85-4aca-4847-89e7-77b652efbe6c_IMG_20240520_191823268-edited.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_135744581.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240520_192700120.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_133025098_HDR.jpg
+  Moved video: thebergmannfamily google takeout/VID_20240612_162808117~2.mp4 -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_134210974_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_133057428_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_133235412.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240614_163759058.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240520_192828642_PORTRAIT.jpg -> 2024/05 May
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_134344401_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20240604_135045253_HDR.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20240612_160726909.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240604_142752296.jpg -> 2024/06 June
+  Moved photo: thebergmannfamily google takeout/IMG_20240611_200421251.jpg -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152102679.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-83.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-40.jpg
+  Skipped (exists): thebergmannfamily google takeout/FullParty-50.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-66.jpg
+  Skipped (exists): thebergmannfamily google takeout/Groomsmen-5.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152113358.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionB-87.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyB-36.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionB-79.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-55.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-41.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-80.jpg
+  Moved video: thebergmannfamily google takeout/VID_20230703_065720348.mp4 -> 2023/07 July
+  Skipped (exists): thebergmannfamily google takeout/Family-80.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-57.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-43.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionB-53.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20230703_065831603.jpg -> 2023/07 July
+  Moved photo: thebergmannfamily google takeout/IMG_20230703_065846461.jpg -> 2023/07 July
+  Skipped (exists): thebergmannfamily google takeout/Portraits-133.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-127.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-9.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-52.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-85.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-60.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-74.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-52.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionB-43.jpg
+  Skipped (exists): thebergmannfamily google takeout/Groomsmen-2.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionA-131.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230830_195740116.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-90.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20230602_144911666.jpg -> 2023/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152120152.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152400075.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-45.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-86.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-88.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-51.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionB-82.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionB-54.jpg
+  Skipped (exists): thebergmannfamily google takeout/Groomsmen-1.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionA-126.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_151531114.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-89.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-23.jpg
+  Skipped (exists): thebergmannfamily google takeout/GettingReady-29.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152437709.jpg
+  Skipped (exists): thebergmannfamily google takeout/FullParty-26.jpg
+  Skipped (exists): thebergmannfamily google takeout/FullParty-32.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-22.jpg
+  Skipped (exists): thebergmannfamily google takeout/GettingReady-28.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-22.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20230703_065824494.jpg -> 2023/07 July
+  Moved photo: thebergmannfamily google takeout/IMG_20230703_065842711.jpg -> 2023/07 July
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152059153.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-20.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_150611496.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-192.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152422844.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20230602_144913361.jpg -> 2023/06 June
+  Skipped (exists): thebergmannfamily google takeout/ReceptionA-74.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-21.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyB-5.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-25.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-19.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_150602362.jpg
+  Skipped (exists): thebergmannfamily google takeout/FullParty-21.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152509145.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-169.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152558486.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_151537934.jpg
+  Skipped (exists): thebergmannfamily google takeout/FullParty-34.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_145630761.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-24.jpg
+  Skipped (exists): thebergmannfamily google takeout/FullParty-8.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-181.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_151521614.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-27.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-33.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20230421_172303075.jpg -> 2023/04 April
+  Skipped (exists): thebergmannfamily google takeout/Family-8.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-5.jpg
+  Skipped (exists): thebergmannfamily google takeout/FullParty-4.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-16.jpg
+  Skipped (exists): thebergmannfamily google takeout/FullParty-12.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-24.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionA-95.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-17.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-4.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-6.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyB-9.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionA-4.jpg
+  Skipped (exists): thebergmannfamily google takeout/Groomsmen-48.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-15.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionA-40.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-27.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-26.jpg
+  Skipped (exists): thebergmannfamily google takeout/GettingReady-22.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-207.jpg
+  Skipped (exists): thebergmannfamily google takeout/GettingReady-32.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionA-51.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionA-86.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-22.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_150524659.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-11.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-39.jpg
+  Skipped (exists): thebergmannfamily google takeout/FullParty-15.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-23.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-13.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152442827.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-21.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-20.jpg
+  Skipped (exists): thebergmannfamily google takeout/GettingReady-24.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-12.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-49.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-75.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-84.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-61.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-75.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-49.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyB-17.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-48.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-74.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152431845.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-60.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-85.jpg
+  Skipped (exists): thebergmannfamily google takeout/GettingReady-42.jpg
+  Skipped (exists): thebergmannfamily google takeout/GettingReady-56.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_152447469.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-1.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-76.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-62.jpg
+  Skipped (exists): thebergmannfamily google takeout/GettingReady-54.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-87.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-76.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-62.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-77.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-9.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-86.jpg
+  Skipped (exists): thebergmannfamily google takeout/Groomsmen-16.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20230108_151351922.jpg
+  Skipped (exists): thebergmannfamily google takeout/GettingReady-51.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-55.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionB-63.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyB-10.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionA-104.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionA-138.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-72.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-40.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-83.jpg
+  Skipped (exists): thebergmannfamily google takeout/Portraits-5.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-114.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-64.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-58.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionA-19.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionB-48.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionB-60.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionA-113.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-71.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-65.jpg
+  Skipped (exists): thebergmannfamily google takeout/Family-59.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyA-80.jpg
+  Skipped (exists): thebergmannfamily google takeout/ReceptionA-30.jpg
+  Skipped (exists): thebergmannfamily google takeout/Groomsmen-38.jpg
+  Skipped (exists): thebergmannfamily google takeout/Bridesmaids-65.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220212_130311263_HDR.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20220212_120732401_HDR~3.jpg -> 2022/02 February
+  Moved photo: thebergmannfamily google takeout/IMG_20220212_120732401_HDR~2.jpg -> 2022/02 February
+  Skipped (exists): thebergmannfamily google takeout/CeremonyC-1.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220221_111029208.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyC-3.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220212_120740257_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220102_151732824.jpg
+  Skipped (exists): thebergmannfamily google takeout/GettingReady-9.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220106_193719646.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220210_214535945.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220121_142134361.jpg
+  Skipped (exists): thebergmannfamily google takeout/GettingReady-8.jpg
+  Skipped (exists): thebergmannfamily google takeout/VID_20221202_193643915.mp4
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220212_105740457.jpg
+  Skipped (exists): thebergmannfamily google takeout/CeremonyC-4.jpg
+  Skipped (exists): thebergmannfamily google takeout/VID_20221202_193453798.mp4
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220122_212005152.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220920_202406707~2.jpg
+  Skipped (exists): thebergmannfamily google takeout/GettingReady-10.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220225_141801172.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220225_141429416_HDR.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20220212_120740257_HDR~2.jpg -> 2022/02 February
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220212_104355374_HDR.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20220212_120740257_HDR~3.jpg -> 2022/02 February
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220128_215912841.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220117_111613005.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220116_211621960.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220212_102716392.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220211_072913370.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20221201_195110879.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20221201_195054222.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20220116_113954845_BURST001.jpg -> 2022/01 January
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220110_150331658.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220225_161131358_BURST000_COVER_TOP.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220204_210025697.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220117_114138607_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220212_114758433.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220212_123615216_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/VID_20221201_195503950.mp4
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220106_171505864.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220212_104353818_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220210_224201275.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220109_121612464.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220221_110630585.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220212_120732401_HDR.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220212_111945973_BURST001.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20220212_095737162.jpg
+  Skipped (exists): thebergmannfamily google takeout/1980-youth-039.jpg
+  Moved photo: thebergmannfamily google takeout/1980-youth-001.jpg -> 1980/06 June (Using earlier date: 1980-06-30 (later: 2014-05-28))
+  Skipped (exists): thebergmannfamily google takeout/1980-youth-003.jpg
+  Skipped (exists): thebergmannfamily google takeout/1980-youth-065.jpg
+  Skipped (exists): thebergmannfamily google takeout/1980-youth-064.jpg
+  Skipped (exists): thebergmannfamily google takeout/cars-051.jpg
+  Skipped (exists): thebergmannfamily google takeout/cars-045.jpg
+  Skipped (exists): thebergmannfamily google takeout/1980-youth-053.jpg
+  Skipped (exists): thebergmannfamily google takeout/1980-youth-052.jpg
+  Skipped (exists): thebergmannfamily google takeout/1980-youth-046.jpg
+  Skipped (exists): thebergmannfamily google takeout/1980-youth-043.jpg
+  Skipped (exists): thebergmannfamily google takeout/1980-youth-041.jpg
+  Skipped (exists): thebergmannfamily google takeout/cars-038.jpg
+  Skipped (exists): thebergmannfamily google takeout/1981-youth-157.jpg
+  Skipped (exists): thebergmannfamily google takeout/1981-youth-143.jpg
+  Skipped (exists): thebergmannfamily google takeout/1981-youth-156.jpg
+  Skipped (exists): thebergmannfamily google takeout/1981-youth-125.jpg
+  Skipped (exists): thebergmannfamily google takeout/1981-youth-127.jpg
+  Skipped (exists): thebergmannfamily google takeout/1981-youth-117.jpg
+  Skipped (exists): thebergmannfamily google takeout/1981-youth-128.jpg
+  Skipped (exists): thebergmannfamily google takeout/1981-youth-114.jpg
+  Moved video: thebergmannfamily google takeout/VID_20240604_104834834.mp4 -> 2024/06 June
+  Skipped (exists): thebergmannfamily google takeout/family-054.jpg
+  Skipped (exists): thebergmannfamily google takeout/family-085.jpg
+  Skipped (exists): thebergmannfamily google takeout/1996-scouts-053.jpg
+  Skipped (exists): thebergmannfamily google takeout/1996-scouts-086.jpg
+  Skipped (exists): thebergmannfamily google takeout/1996-scouts-043.jpg
+  Skipped (exists): thebergmannfamily google takeout/1998-scouts-189.jpg
+  Skipped (exists): thebergmannfamily google takeout/1999-scouts-252.jpg
+  Skipped (exists): thebergmannfamily google takeout/1999-scouts-235.jpg
+  Skipped (exists): thebergmannfamily google takeout/youthC-014.jpg
+  Skipped (exists): thebergmannfamily google takeout/youthC-012.jpg
+  Skipped (exists): thebergmannfamily google takeout/youthC-018.jpg
+  Skipped (exists): thebergmannfamily google takeout/family-072.jpg
+  Skipped (exists): thebergmannfamily google takeout/family-077.jpg
+  Skipped (exists): thebergmannfamily google takeout/2003-scouts-221.jpg
+  Skipped (exists): thebergmannfamily google takeout/2003-scouts-217.jpg
+  Moved photo: thebergmannfamily google takeout/2005-Calvin w Bouquet.JPG -> 2005/08 August (Using earlier date: 2005-08-13 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2005-100_1125.JPG -> 2005/08 August (Using earlier date: 2005-08-13 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2005-IMG_9795.JPG -> 2005/08 August (Using earlier date: 2005-08-13 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2005-Calvin & Opa.JPG -> 2005/08 August (Using earlier date: 2005-08-13 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2005-IMG_9805.JPG -> 2005/08 August (Using earlier date: 2005-08-13 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2005-IMG_9214.JPG -> 2005/08 August (Using earlier date: 2005-08-13 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2005-IMG_9499.JPG -> 2005/08 August (Using earlier date: 2005-08-13 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2005-IMG_9107.JPG -> 2005/08 August (Using earlier date: 2005-08-13 (later: 2015-04-20))
+  Skipped (exists): thebergmannfamily google takeout/2002-scouts-157.jpg
+  Skipped (exists): thebergmannfamily google takeout/2002-scouts-151.jpg
+  Skipped (exists): thebergmannfamily google takeout/2002-scouts-175.jpg
+  Skipped (exists): thebergmannfamily google takeout/2002-scouts-158.jpg
+  Moved photo: thebergmannfamily google takeout/2011-DSCN5064.JPG -> 2011/08 August (Using earlier date: 2011-08-01 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/2011-DSCN5066.JPG -> 2011/08 August (Using earlier date: 2011-08-01 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/kendalls pictures 001.JPG -> 2011/08 August (Using earlier date: 2011-08-05 (later: 2014-05-25))
+  Moved photo: thebergmannfamily google takeout/2009-IMG_1150.JPG -> 2011/08 August (Using earlier date: 2011-08-28 (later: 2015-04-20))
+  Moved photo: thebergmannfamily google takeout/IMG_20211029_075437967~2.jpg -> 2021/10 October
+  Moved photo: thebergmannfamily google takeout/IMG_20210608_163620032~2.jpg -> 2021/06 June
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211224_084541355.jpg
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211222_155025009.jpg
+  Moved photo: thebergmannfamily google takeout/IMG_20210724_104225767_HDR~2.jpg -> 2021/07 July
+  Moved photo: thebergmannfamily google takeout/IMG_20210706_172653351_HDR~2.jpg -> 2021/07 July
+  Skipped (exists): thebergmannfamily google takeout/IMG_20211014_130234808~2.jpg
+  Moved photo: thebergmannfamily google takeout/2010_Jacen_Blessing1.JPG -> 2010/04 April (Using earlier date: 2010-04-07 (later: 2014-05-25))
+  Skipped (exists): thebergmannfamily google takeout/1982-youth-232.jpg
+  Skipped (exists): thebergmannfamily google takeout/1982-youth-235.jpg
+  Moved photo: thebergmannfamily google takeout/family-102.jpg -> 1982/06 June (Using earlier date: 1982-06-27 (later: 2013-11-30))
+  Skipped (exists): thebergmannfamily google takeout/1982-youth-198.jpg
+  Skipped (exists): thebergmannfamily google takeout/1982-youth-199.jpg
+
+Stats for TO_PROCESS:
+  Media files found: 944
+  Successfully moved: 364
+  Sent to review: 0
+  Duplicates deleted: 0
+  Skipped (already exists): 580
+  Failed: 0
+Building file index for fast lookups...
+  Indexed 41996 files with 41939 unique base names
+
+
+Cleaning up empty directories...
+
+================================================================================
+SUMMARY
+================================================================================
+
+Total media files found: 944
+Total media files sent to review: 0
+Total media files organized: 364
+Total duplicates deleted: 0
+Total skipped (already exists): 580
+Total failed: 0
+
+Organized photos location: /Users/skye2k2/sandbox/repositories/personal/process-media/Organized_Photos
+Organized videos location: /Users/skye2k2/sandbox/repositories/personal/process-media/Organized_Videos
+
+
+NOTE: Any files remaining in original Takeout directories are duplicates
+      and can be safely deleted.
+
+================================================================================
+Scanning for fractured project directories...
+
+Processing Organized_Photos/
+  Orphaned: .analysis_cache
+    JSON in: 2013/06 Scott Mission Call
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2013/05 Life
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2013/10 Life Projects
+    Media not found in organized structure
+  Orphaned: IMG_20131012_103435.jpg
+    JSON in: 2013/10 Life Projects
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2014/05 Family History
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2022/05 4180 W Joshua Ln
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2022/08 Nicole, Sara Klein
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2022/05 1734 N 390 W
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2022/10 Clif, Jacen
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2022/Young Mens Camp
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2022/10 Nicole, Clif
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2022/09 Lai Mansion - 1611 E Maple St, Mapleton, UT 84664
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2025/08 Carina Surprise Visit
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2025/10 - 12 J Club and Rec Volleyball
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2025/03 - 05 J 9th Grade Feeder Volleyball
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2025/05 Yellowstone Trip
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2025/02 - 05 K Gymnastics
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2025/05 - 08 Summer Fun
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2024/08 to add for Shutterfly
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2024/09 - 11 Rec Volleyball
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2023/01 Nicole(1)
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2023/05 End of School
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2023/12 Clif, Nicole
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2023/04 Nicole, Angela
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2023/08 Nicole, Shannon
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2023/11 Nicole, Jacen
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2019/04 Nicole, Manila
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2021/08 Nicole, Cindy
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2020/05 Archive
+    Media not found in organized structure
+Processing Organized_Videos/
+  Orphaned: .analysis_cache
+    JSON in: 2021/05 Gymnastics
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2020/05 2020 05 May Dance Festival
+    Media not found in organized structure
+  Orphaned: .analysis_cache
+    JSON in: 2020/04 2020-04 April Gymnastics Mini Classes
+    Media not found in organized structure
+
+============================================================
+Summary:
+  Orphaned JSON files found: 32
+  Corresponding media files found: 0
+  Media files moved: 0
+  JSON files deleted: 0
+  Media files not found: 32
+
+Note: 32 media files were not found.
+They may still be in the Takeout source and will be processed later.
+Building file index for fast lookups...
+  Indexed 41996 files with 41939 unique base names
+
+Scanning for orphaned JSON files...
+
+Scanning Organized_Photos...
+  Found 511 JSON files
+
+Scanning Organized_Videos...
+  Found 6 JSON files
+
+======================================================================
+SUMMARY
+======================================================================
+Total JSON files scanned: 517
+JSON with local media (skipped): 39
+JSON with media found elsewhere: 0
+Truly orphaned JSON (no media): 3
+
+======================================================================
+TRULY ORPHANED JSON (no media found anywhere)
+======================================================================
+
+Found 3 JSON files with no matching media:
+  2025/10 October/Goblin Valley Family Trip/IMG_20251016_151938510.jpg.supplemental-metada.json
+  2013/10 Life Projects/IMG_20131012_103435.jpg.supplemental-metadata.json
+  .conversion_index.json
+
+Do you want to delete these orphaned JSON files? (yes/no): yes (auto)
+
+Deleted 3 orphaned JSON files
+
+======================================================================
+FINAL STATS
+======================================================================
+Metadata applied: 0
+JSON files deleted: 3
+
+================================================================================
+Google Takeout Metadata Merger
+================================================================================
+
+Directory: Organized_Photos/_TO_REVIEW_
+Recursive: True
+Remove JSON after merge: True
+Preserve existing EXIF: False
+
+Date handling:
+  - Uses earliest date between photoTakenTime and creationTime
+  - Skips files where dates differ by 3+ months
+
+================================================================================
+
+
+================================================================================
+SUMMARY
+================================================================================
+
+Total media files found: 164
+Successfully processed: 0
+Skipped (no JSON): 164
+Skipped (no metadata): 0
+Skipped (date conflict): 0
+Failed: 0
+JSON files removed: 0
+
+================================================================================
+
+
+================================================================================
+PHASE 1: PREPARATION
+================================================================================
+
+================================================================================
+STEP: Fixing truncated file extensions
+================================================================================
+
+
+================================================================================
+PHASE 2: ORGANIZATION
+================================================================================
+
+================================================================================
+STEP: Organizing photos
+================================================================================
+
+
+================================================================================
+PHASE 3: POST-PROCESSING
+================================================================================
+
+================================================================================
+STEP: Reuniting fractured project directories
+================================================================================
+
+
+================================================================================
+Cleaning up orphaned JSON metadata files
+================================================================================
+
+
+================================================================================
+PHASE 4: METADATA (review files only)
+================================================================================
+
+================================================================================
+STEP: Merging JSON metadata into EXIF for review files
+================================================================================
+
+
+================================================================================
+✅ PROCESSING COMPLETE
+================================================================================
+
+Results:
+  - Photos organized in: Organized_Photos/
+  - Videos organized in: Organized_Videos/
+  - Files needing review: Organized_Photos/_TO_REVIEW_/
+
+Next steps:
+  1. Review any files in _TO_REVIEW_/
+  2. Check Trash_Archives/ for files to permanently delete
+
+Processing times:
+  - Fix extensions: 0s
+  - Organize files: 4m 51s
+  - Reunite projects: 0s
+  - Cleanup orphaned JSON: 3s
+  - Merge metadata: 0s
+  - Total time: 4m 55s
+
+================================================================================
+
+workflow exit: 0

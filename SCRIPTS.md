@@ -120,6 +120,18 @@ Adopts loose photos into an event folder that already owns their day, regardless
 
 Dry-run by default; `--execute` to move, `--year YYYY` to scope, `--event-threshold N` to tune cluster detection (0 disables discovery but not adoption).
 
+### `route_family_scans.py`
+
+Pre-organize routing pass for takeouts holding scanned physical photos, whose sidecar `photoTakenTime` is the scan date rather than the depicted era. Classifies every file in the standard year albums (`family_scan_classifier.py`): real pre-2013 sidecar dates are tagged in place and left for the workflow, filename-year scans move to `YYYY/00 Circa/` with Jan-1 estimated dates and a `date-estimated` keyword, undated scans move to `Organized_Photos/_FAMILY_HISTORY_/<batch>/`, and year-album twins of project-album photos are left for the project dedupe. Embeds the person-tag convention (`PersonInImage` + `Subject` + `Keywords`, never `Artist`). `--dry-run` plans without touching anything; run it BEFORE `workflow_takeout.py`.
+
+### `backup_archive.py`
+
+Versioned backup of the repo root to the external `MEDIA_BACKUP` drive. `sync` writes a dated browsable tree under `snapshots/` hard-linking unchanged files from the previous one (rsync `--link-dest`) and repoints `current`; `verify` builds full md5 manifests of both sides, compares them, and writes the manifest to the drive. `--dry-run`, `--dest`.
+
+### `reconcile_quicksave.py`
+
+One-off deletion gate for a point-in-time archive copy: classifies every media file in it as present (name+size in the live archive), modified, removed (recorded in a removal script), or unexplained — and blocks deletion on anything unexplained. `--deep` md5-confirms the present matches. Report lands in `_records/`.
+
 ### `merge_metadata.py`
 
 Writes Google Takeout JSON metadata into photo and video EXIF. `--recursive`, `--remove-json`, `--preserve-existing`. Requires exiftool.
@@ -155,6 +167,10 @@ Automatically finds files with `-edited`, `_edited`, ` edited`, or ` (edited)` s
 - **SSIM comparison**: How similar are the images?
 - **Blur comparison**: Which version is sharper?
 - **Size comparison**: File size differences
+
+### `analyze_edited_pairs.py`
+
+Measures blur scores across original/`-edited` photo pairs — the measurement half of the recorded ruling that quality indicators should pick the keeper among the 898 edited pairs (see NEXT.md). Promoted from scratch 2026-10-23 because that task is still open.
 
 ### `analyze_video_quality.py`
 

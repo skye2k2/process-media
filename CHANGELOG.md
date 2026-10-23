@@ -2,6 +2,49 @@
 
 ---
 
+## v23 — 2026-10-23 — "The map, cleaned"
+
+Documentation restructure and backup scoping, following the owner's review of the landed import.
+
+<details>
+
+### Changed
+
+- **NEXT.md restored to its forward-looking contract** (82 lines, from 383): the August video-recovery findings moved verbatim to `_records/video-recovery-history.md` with still-live warnings mirrored forward; stale counts removed rather than refreshed.
+- **DECISIONS.md added** — the clean map of standing conventions and measured lessons, each dated with a pointer to its evidence, plus the resolved half of the original hand-written TODO. The pattern used by neighboring repos when the CHANGELOG grows too fast to serve as that map.
+- **Backup set scoped to non-git-protected data** (`Organized_*`, `TO_PROCESS`, `_RESCUED`, `_records`, caches): git plus the GitHub remote protect code and docs; sync and verify share one membership function (`build_backup_manifest`) so coverage cannot drift from copying.
+- **Scratch triage**: import provenance logs, the execution ledger, and both one-off repair scripts promoted to `_records/2026-10-22-family-import/` (the takeout is consumed — unregenerable); `analyze_edited_pairs.py` promoted to a real script for the open 898-edited-pairs task; the remaining served-their-purpose scratch deleted.
+
+</details>
+
+---
+
+## v22 — 2026-10-22 — "Family history, verified backup"
+
+The scanned-photo takeout landed without scattering a single scan into the real 2013–2014 archive, and the organized archive gained its first verified external backup.
+
+<details>
+
+### Added
+
+- **`route_family_scans.py` + `family_scan_classifier.py`** — pre-organize routing for scan-bearing takeouts: real backdated sidecar dates file normally, filename years land in `YYYY/00 Circa/` with `date-estimated` markers, undated scans land in `Organized_Photos/_FAMILY_HISTORY_/<batch>/`, and year-album twins of project photos are left to the project dedupe. Establishes the archive-wide person-tag convention (`PersonInImage` + `Subject` + `Keywords`, never `Artist`), first applied as "Clifford Bergmann" across the scan buckets.
+- **`backup_archive.py`** — versioned external backup (rsync `--link-dest` dated trees, chosen after proving `tmutil` cannot snapshot a non-boot APFS volume) with full md5-manifest verification; the planted-defect check caught a deliberately tampered file before the real run was trusted.
+- **`reconcile_quicksave.py`** — deletion gate that proved all 37,300 files of the February Desktop copy present in the live archive before its removal was proposed.
+- **`Organized_Videos/_PRODUCED/`** — home for finished video work, pending copy from the NAS `_Produced` share.
+
+### Fixed
+
+- **Personless-run crash in `move_file_safely`** (`organize_media.py:557`): `['_' + PERSON_NAME]` was evaluated eagerly, so every `--person`-less organize run died on its first file; this import was the first personless run in the repo's history. Person-run behavior unchanged, regression test added.
+
+### Learned (recorded in NEXT.md)
+
+- `find_google_photos_dirs` only looks one level below the input dir, so a wrapper folder around `Takeout*/` silently bypasses project-folder handling — the wedding albums were flattened by date and reunited post-hoc from the surviving sidecar mapping.
+- Google's year view duplicates backdated album photos into scan-year albums; the name-based dedupe then kept the wrong copy. The pre-routing backup snapshot preserved the original sidecars, and all 133 real dates were restored from it — the backup paid for itself on day one.
+
+</details>
+
+---
+
 ## v21 — 2026-08-09 — "Promotion and cleanup"
 
 Two temporary scripts earned permanent homes; 5.4 GB of scaffolding did not.

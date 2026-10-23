@@ -554,7 +554,9 @@ def move_file_safely(src, dst_dir, create_date=None, modify_date=None, file_inde
     is_media = ext in MEDIA_EXTENSIONS
 
     # Determine if current file is an -edited variant (needed for index operations)
-    is_edited = base.endswith('-edited') or any(base.endswith(f'-edited_{suffix}') for suffix in ['_' + PERSON_NAME] if PERSON_NAME)
+    # The suffix list must be built lazily: ['_' + PERSON_NAME] evaluated eagerly
+    # raises TypeError on personless runs before the comprehension's guard applies.
+    is_edited = base.endswith('-edited') or any(base.endswith(f'-edited_{suffix}') for suffix in (['_' + PERSON_NAME] if PERSON_NAME else []))
 
     # Strip any existing person suffix from the base name (for both index and glob operations)
     base_without_suffix = base

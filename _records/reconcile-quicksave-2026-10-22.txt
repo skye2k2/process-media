@@ -1,0 +1,9 @@
+Quick-save reconciliation — 2026-10-22T07:52:18
+Quick-save root: /Users/skye2k2/Desktop/Active Projects/PERSONAL/process-media/2025-12 google-photo-original-takeout/_Quick Save of Processed Files
+Mode: name+size
+
+Counts:
+  present      37300
+  removed      0
+  modified     0
+  unexplained  0
